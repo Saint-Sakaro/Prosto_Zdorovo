@@ -209,6 +209,9 @@ interface AnalysisPanelProps {
   currentZoom: number;
   // Режим области
   onAreaAnalyze: () => void;
+  areaCenter: [number, number] | null;
+  areaType: 'city' | 'street' | 'block' | null;
+  isDetectingAreaType: boolean;
   // Режим радиуса
   radius: number;
   onRadiusChange: (radius: number) => void;
@@ -224,6 +227,9 @@ interface AnalysisPanelProps {
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   currentZoom,
   onAreaAnalyze,
+  areaCenter,
+  areaType,
+  isDetectingAreaType,
   radius,
   onRadiusChange,
   onRadiusAnalyze,
@@ -316,49 +322,55 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
               exit={{ opacity: 0, x: 20 }}
               transition={{ duration: 0.2 }}
             >
-              {!areaMode ? (
+              <Instructions>
+                {areaCenter
+                  ? `📍 Точка выбрана: ${areaCenter[0].toFixed(4)}, ${areaCenter[1].toFixed(4)}`
+                  : '👆 Кликните на карте, чтобы выбрать точку для анализа'}
+              </Instructions>
+              
+              {areaCenter && (
                 <>
-                  <Instructions>
-                    Измените масштаб карты для активации режима анализа:
-                    <br />
-                    • Zoom 10-12: Анализ по городу/округу
-                    <br />
-                    • Zoom 15+: Анализ по улице/кварталу
-                  </Instructions>
-                  <ZoomInfo>Текущий zoom: {currentZoom.toFixed(1)}</ZoomInfo>
-                </>
-              ) : (
-                <>
-                  <AnalysisMode>
-                    <span>
-                      {areaMode === 'city' ? '🏙️' : '🏘️'}
-                    </span>
-                    <span>
-                      Режим:{' '}
-                      {areaMode === 'city' ? 'Город/Округ' : 'Улица/Квартал'}
-                    </span>
-                  </AnalysisMode>
-                  <Instructions>
-                    {areaMode === 'city'
-                      ? 'Анализ будет выполнен для всей видимой области карты (город/округ)'
-                      : 'Анализ будет выполнен для текущей видимой области (улица/квартал)'}
-                  </Instructions>
-                  <ButtonRow>
-                    <Button
-                      variant="primary"
-                      size="md"
-                      onClick={onAreaAnalyze}
-                      disabled={isAnalyzing}
-                      fullWidth
-                    >
-                      {isAnalyzing
-                        ? '⏳ Анализ...'
-                        : '🔍 Проанализировать область'}
-                    </Button>
-                  </ButtonRow>
-                  <ZoomInfo>Текущий zoom: {currentZoom.toFixed(1)}</ZoomInfo>
+                  {isDetectingAreaType ? (
+                    <AnalysisMode>
+                      <span>🔍</span>
+                      <span>Определение типа области...</span>
+                    </AnalysisMode>
+                  ) : areaType ? (
+                    <AnalysisMode>
+                      <span>
+                        {areaType === 'city' ? '🏙️' : areaType === 'street' ? '🛣️' : '🏘️'}
+                      </span>
+                      <span>
+                        {areaType === 'city' 
+                          ? 'Город/Область' 
+                          : areaType === 'street' 
+                          ? 'Улица' 
+                          : 'Квартал'}
+                      </span>
+                    </AnalysisMode>
+                  ) : null}
                 </>
               )}
+
+              <ButtonRow>
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={onAreaAnalyze}
+                  disabled={!areaCenter || !areaType || isDetectingAreaType || isAnalyzing}
+                  fullWidth
+                >
+                  {isAnalyzing
+                    ? '⏳ Анализ...'
+                    : isDetectingAreaType
+                    ? '🔍 Определение типа...'
+                    : areaCenter && areaType
+                    ? '🔍 Проанализировать область'
+                    : 'Выберите точку на карте'}
+                </Button>
+              </ButtonRow>
+              
+              <ZoomInfo>Текущий zoom: {currentZoom.toFixed(1)}</ZoomInfo>
             </motion.div>
           ) : (
             <motion.div

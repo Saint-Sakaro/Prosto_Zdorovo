@@ -4,6 +4,7 @@
 Используется для автоматической обработки событий:
 - Обновление рейтинга POI при создании/модерации отзыва
 - Создание рейтинга при создании POI
+- Синхронизация POI с OpenSearch для геопространственных запросов
 """
 
 from django.db.models.signals import post_save, post_delete
@@ -16,6 +17,7 @@ from gamification.models import Review
 def create_poi_rating(sender, instance, created, **kwargs):
     """
     Создает рейтинг при создании нового POI
+    Синхронизирует POI с OpenSearch
     
     Args:
         sender: Модель POI
@@ -32,6 +34,19 @@ def create_poi_rating(sender, instance, created, **kwargs):
                 'approved_reviews_count': 0,
             }
         )
+    
+    # Синхронизируем с OpenSearch при создании или обновлении
+    if instance.is_active:
+        from maps.services.opensearch_service import OpenSearchService
+        opensearch = OpenSearchService()
+        if opensearch.enabled:
+            opensearch.index_poi(instance)
+    else:
+        # Если POI деактивирован, удаляем из индекса
+        from maps.services.opensearch_service import OpenSearchService
+        opensearch = OpenSearchService()
+        if opensearch.enabled:
+            opensearch.delete_poi(str(instance.uuid))
 
 
 @receiver(post_save, sender=Review)
@@ -136,4 +151,26 @@ def recalculate_poi_rating(poi):
         rating.health_score = 50.0
     
     rating.save()
+    
+    # Обновляем POI в OpenSearch после пересчета рейтинга
+    from maps.services.opensearch_service import OpenSearchService
+    opensearch = OpenSearchService()
+    if opensearch.enabled:
+        opensearch.index_poi(poi)
+
+
+@receiver(post_delete, sender=POI)
+def delete_poi_from_opensearch(sender, instance, **kwargs):
+    """
+    Удаляет POI из OpenSearch при удалении из базы данных
+    
+    Args:
+        sender: Модель POI
+        instance: Экземпляр POI
+        **kwargs: Дополнительные аргументы
+    """
+    from maps.services.opensearch_service import OpenSearchService
+    opensearch = OpenSearchService()
+    if opensearch.enabled:
+        opensearch.delete_poi(str(instance.uuid))
 

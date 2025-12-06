@@ -278,7 +278,7 @@ class ReverseGeocoderView(APIView):
     """
     View для обратного геокодирования
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # Публичный доступ для карты
     
     def post(self, request):
         """

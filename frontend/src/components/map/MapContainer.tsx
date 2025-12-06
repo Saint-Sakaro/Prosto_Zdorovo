@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import styled from 'styled-components';
-import { YMaps, Map, Placemark, Circle } from '@pbe/react-yandex-maps';
+import { YMaps, Map, Placemark, Circle, Polygon } from '@pbe/react-yandex-maps';
 import { mapsApi, POI, POIDetails, AnalysisResult, AnalysisRequest } from '../../api/maps';
 import { gamificationApi } from '../../api/gamification';
 import { CategoryFilters } from './CategoryFilters';
@@ -12,6 +12,12 @@ import { ReviewFormModal } from './ReviewFormModal';
 import { ZOOM_THRESHOLDS } from '../../types/maps';
 import { Card } from '../common/Card';
 import { theme } from '../../theme';
+
+declare global {
+  interface Window {
+    ymaps: any;
+  }
+}
 
 const MapWrapper = styled.div`
   width: 100%;
@@ -95,6 +101,10 @@ export const MapContainer: React.FC = () => {
   const [activeAnalysisMode, setActiveAnalysisMode] = useState<'area' | 'radius'>('area');
   const [radiusCenter, setRadiusCenter] = useState<[number, number] | null>(null);
   const [radius, setRadius] = useState(1000); // в метрах
+  const [areaCenter, setAreaCenter] = useState<[number, number] | null>(null); // Центр для анализа области
+  const [areaType, setAreaType] = useState<'city' | 'street' | 'block' | null>(null); // Тип выбранной области
+  const [isDetectingAreaType, setIsDetectingAreaType] = useState(false); // Флаг определения типа области
+  const [areaPolygon, setAreaPolygon] = useState<[number, number][] | null>(null); // Координаты полигона области
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
@@ -361,11 +371,330 @@ export const MapContainer: React.FC = () => {
     return 'islands#blueCircleDotIcon';
   }, []);
 
+  // Получение реальной геометрии области через Yandex Maps API (как в поисковике Яндекса)
+  const getAreaBounds = useCallback(async (
+    center: [number, number],
+    type: 'city' | 'street' | 'block',
+    geocodeResult: any
+  ): Promise<[number, number][] | null> => {
+    try {
+      // Проверяем, доступен ли Yandex Maps API
+      let attempts = 0;
+      const maxAttempts = 10;
+      while (!window.ymaps && attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+      }
+
+      if (!window.ymaps) {
+        console.warn('Yandex Maps API не доступен, используем приблизительные границы');
+        return null;
+      }
+
+      // Ждем готовности API
+      await window.ymaps.ready();
+
+      // Определяем kind на основе типа области и зума (как в поисковике Яндекса)
+      let kind: string;
+      if (type === 'city') {
+        kind = 'locality'; // город
+      } else if (type === 'street') {
+        kind = 'street'; // улица
+      } else {
+        // Для квартала используем district или house в зависимости от зума
+        if (currentZoom > 17) {
+          kind = 'house'; // дом/квартал при очень большом зуме
+        } else if (currentZoom > 15) {
+          kind = 'street'; // улица при большом зуме (для квартала)
+        } else {
+          kind = 'district'; // район при среднем зуме
+        }
+      }
+
+      console.log('🔍 Reverse geocode для получения границ:', {
+        center,
+        type,
+        kind,
+        zoom: currentZoom,
+      });
+
+      // Используем reverse geocode с координатами и kind (как в поисковике Яндекса)
+      // Формат: [lat, lon] для @pbe/react-yandex-maps
+      const geocoder = window.ymaps.geocode(center, {
+        kind: kind,
+        results: 1,
+      });
+      
+      const result = await geocoder;
+
+      if (result.geoObjects.getLength() === 0) {
+        console.warn('Геообъект не найден для kind:', kind);
+        return null;
+      }
+
+      const firstGeoObject = result.geoObjects.get(0);
+      
+      // Логируем информацию о найденном объекте
+      const geoObjectName = firstGeoObject.properties?.get('name') || firstGeoObject.properties?.get('text') || 'Неизвестно';
+      const geoObjectKind = firstGeoObject.properties?.get('kind') || 'Неизвестно';
+      console.log('📍 Найден геообъект:', {
+        name: geoObjectName,
+        kind: geoObjectKind,
+        geometryType: firstGeoObject.geometry?.getType?.() || 'Неизвестно',
+      });
+      
+      return extractPolygonFromGeoObject(firstGeoObject, center, type);
+    } catch (err) {
+      console.error('❌ Ошибка при получении границ области:', err);
+      return null;
+    }
+  }, [currentZoom]);
+
+  // Извлечение полигона из геообъекта Yandex Maps (как в поисковике Яндекса)
+  const extractPolygonFromGeoObject = useCallback((
+    geoObject: any,
+    center: [number, number],
+    type: 'city' | 'street' | 'block'
+  ): [number, number][] | null => {
+    try {
+      if (!geoObject) {
+        return null;
+      }
+
+      // Сначала пробуем получить boundedBy (границы объекта) - это работает для всех типов
+      const boundedBy = geoObject.properties?.get('boundedBy');
+      
+      if (boundedBy && Array.isArray(boundedBy) && boundedBy.length === 2) {
+        // boundedBy: [[sw_lat, sw_lon], [ne_lat, ne_lon]] - юго-запад и северо-восток
+        const sw = boundedBy[0]; // [sw_lat, sw_lon]
+        const ne = boundedBy[1]; // [ne_lat, ne_lon]
+        
+        console.log('📍 Используем boundedBy для создания полигона:', {
+          sw,
+          ne,
+          type,
+        });
+        
+        // Создаем прямоугольный полигон из bounds
+        // Формат для Polygon: [[lat, lon], [lat, lon], ...]
+        const polygon: [number, number][] = [
+          [sw[0], sw[1]], // Юго-запад [lat, lon]
+          [sw[0], ne[1]], // Юго-восток [lat, lon]
+          [ne[0], ne[1]], // Северо-восток [lat, lon]
+          [ne[0], sw[1]], // Северо-запад [lat, lon]
+          [sw[0], sw[1]], // Замыкаем полигон
+        ];
+        
+        return polygon;
+      }
+
+      // Если boundedBy нет, пробуем получить реальную геометрию
+      if (!geoObject.geometry) {
+        console.warn('Нет ни boundedBy, ни geometry');
+        return null;
+      }
+
+      const geometry = geoObject.geometry;
+      const geometryType = geometry.getType();
+      
+      console.log('📍 Тип геометрии:', geometryType);
+
+      let coordinates: any = null;
+
+      if (geometryType === 'Polygon') {
+        // Полигон - получаем координаты
+        // Формат: [[[lon, lat], [lon, lat], ...]] - массив контуров
+        const polygonCoords = geometry.getCoordinates();
+        
+        if (polygonCoords && Array.isArray(polygonCoords) && polygonCoords.length > 0) {
+          // Берем первый контур (внешний контур полигона)
+          if (Array.isArray(polygonCoords[0]) && polygonCoords[0].length > 0) {
+            coordinates = polygonCoords[0];
+          }
+        }
+      } else if (geometryType === 'MultiPolygon') {
+        // Мультиполигон - берем первый полигон
+        const multiCoords = geometry.getCoordinates();
+        if (multiCoords && Array.isArray(multiCoords) && multiCoords.length > 0) {
+          const firstPolygon = multiCoords[0];
+          if (firstPolygon && Array.isArray(firstPolygon) && firstPolygon.length > 0) {
+            coordinates = firstPolygon[0];
+          }
+        }
+      } else if (geometryType === 'Point') {
+        // Для точки используем boundedBy (уже проверили выше)
+        return null;
+      } else {
+        // Для других типов пытаемся получить bounds
+        const bounds = geometry.getBounds();
+        if (bounds && Array.isArray(bounds) && bounds.length === 2) {
+          const sw = bounds[0];
+          const ne = bounds[1];
+          return [
+            [sw[0], sw[1]],
+            [sw[0], ne[1]],
+            [ne[0], ne[1]],
+            [ne[0], sw[1]],
+            [sw[0], sw[1]],
+          ];
+        }
+        return null;
+      }
+
+      if (!coordinates || !Array.isArray(coordinates) || coordinates.length === 0) {
+        console.warn('Координаты не найдены или пусты');
+        return null;
+      }
+
+      console.log('📍 Получены координаты геометрии:', {
+        type: geometryType,
+        coordinatesLength: coordinates.length,
+        sampleCoords: coordinates.slice(0, 3),
+      });
+
+      // Преобразуем координаты в формат [lat, lon][]
+      // Yandex Maps API возвращает координаты как [lon, lat]
+      // А компонент Polygon из @pbe/react-yandex-maps ожидает [lat, lon]
+      const polygon: [number, number][] = coordinates.map((coord: any) => {
+        if (Array.isArray(coord) && coord.length >= 2) {
+          const lon = coord[0];
+          const lat = coord[1];
+          
+          if (typeof lat === 'number' && typeof lon === 'number' &&
+              lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+            return [lat, lon]; // [широта, долгота]
+          }
+        }
+        return null;
+      }).filter((coord: any) => coord !== null && coord[0] !== null && coord[1] !== null) as [number, number][];
+
+      // Убеждаемся, что полигон замкнут
+      if (polygon.length > 0) {
+        const first = polygon[0];
+        const last = polygon[polygon.length - 1];
+        if (first[0] !== last[0] || first[1] !== last[1]) {
+          polygon.push([first[0], first[1]]);
+        }
+      }
+
+      return polygon.length > 0 ? polygon : null;
+    } catch (err) {
+      console.error('❌ Ошибка при извлечении полигона:', err);
+      return null;
+    }
+  }, []);
+
+  // Генерация приблизительного полигона (fallback)
+  const generateApproximatePolygon = useCallback((center: [number, number], type: 'city' | 'street' | 'block'): [number, number][] => {
+    const [lat, lon] = center;
+    
+    // Размер области в метрах в зависимости от типа
+    let sizeMeters: number;
+    if (type === 'street') {
+      sizeMeters = 300; // Улица: 300 метров
+    } else if (type === 'block') {
+      sizeMeters = 600; // Квартал: 600 метров
+    } else {
+      sizeMeters = 5000; // Город: 5 км
+    }
+    
+    // Преобразуем метры в градусы (приблизительно: 1 градус ≈ 111 км)
+    const sizeDegrees = sizeMeters / 111000;
+    const halfSize = sizeDegrees / 2;
+    
+    // Создаем квадратный полигон вокруг центра
+    const polygon: [number, number][] = [
+      [lat - halfSize, lon - halfSize], // Юго-запад
+      [lat - halfSize, lon + halfSize], // Юго-восток
+      [lat + halfSize, lon + halfSize], // Северо-восток
+      [lat + halfSize, lon - halfSize], // Северо-запад
+      [lat - halfSize, lon - halfSize], // Замыкаем полигон
+    ];
+    
+    return polygon;
+  }, []);
+
+  // Определение типа области на основе координат
+  const detectAreaType = useCallback(async (coords: [number, number]) => {
+    setIsDetectingAreaType(true);
+    setAreaType(null);
+    setAreaPolygon(null);
+    
+    try {
+      const [lat, lon] = coords;
+      
+      // Вызываем reverse geocoding для определения типа области
+      const geocodeResult = await mapsApi.reverseGeocode({
+        latitude: lat,
+        longitude: lon,
+      });
+      
+      console.log('📍 Reverse geocoding result:', geocodeResult);
+      
+      // Определяем тип области на основе зума карты (как в поисковике Яндекса)
+      // Чем больше зум, тем более детальный уровень выбираем
+      let detectedType: 'city' | 'street' | 'block' = 'city';
+      
+      if (currentZoom > 17) {
+        // Очень близкий зум - квартал/дом
+        detectedType = 'block';
+        console.log('✅ Определен тип: квартал (зум > 17)');
+      } else if (currentZoom > 15) {
+        // Близкий зум - улица
+        detectedType = 'street';
+        console.log('✅ Определен тип: улица (зум > 15)');
+      } else if (currentZoom > 12) {
+        // Средний зум - район (используем как квартал)
+        detectedType = 'block';
+        console.log('✅ Определен тип: район/квартал (зум > 12)');
+      } else {
+        // Далёкий зум - город
+        detectedType = 'city';
+        console.log('✅ Определен тип: город (зум <= 12)');
+      }
+      
+      console.log('🔍 Определение типа области:', {
+        zoom: currentZoom,
+        detectedType,
+        components: geocodeResult.components,
+      });
+      
+      console.log('✅ Detected area type:', detectedType);
+      setAreaType(detectedType);
+      
+      // Получаем реальные границы области через Yandex Maps API
+      const polygon = await getAreaBounds(coords, detectedType, geocodeResult);
+      if (polygon && polygon.length > 0) {
+        console.log('✅ Получен полигон с', polygon.length, 'точками');
+        setAreaPolygon(polygon);
+      } else {
+        console.warn('⚠️ Не удалось получить реальные границы, используем приблизительный полигон');
+        // Fallback на приблизительный полигон
+        const approximatePolygon = generateApproximatePolygon(coords, detectedType);
+        setAreaPolygon(approximatePolygon);
+      }
+    } catch (err: any) {
+      console.error('❌ Error detecting area type:', err);
+      // В случае ошибки определяем тип по умолчанию на основе зума
+      let defaultType: 'city' | 'street' | 'block' = 'city';
+      if (currentZoom >= 15) {
+        defaultType = 'block';
+      } else if (currentZoom >= 10) {
+        defaultType = 'city';
+      }
+      
+      setAreaType(defaultType);
+      
+      // Генерируем приблизительный полигон для визуализации
+      const polygon = generateApproximatePolygon(coords, defaultType);
+      setAreaPolygon(polygon);
+    } finally {
+      setIsDetectingAreaType(false);
+    }
+  }, [currentZoom, getAreaBounds, generateApproximatePolygon]);
+
   // Обработчик клика на карту для выбора центра анализа
   const handleMapClick = useCallback((e: any) => {
-    // Обрабатываем клик только в режиме радиуса
-    if (activeAnalysisMode !== 'radius') return;
-    
     try {
       const coords = e.get('coords');
       console.log('Map clicked, coords:', coords);
@@ -377,28 +706,51 @@ export const MapContainer: React.FC = () => {
         const lon = coords[1];
         
         // Проверяем, что это валидные координаты для Москвы
+        let finalLat: number;
+        let finalLon: number;
+        
         if (lat >= 50 && lat <= 60 && lon >= 30 && lon <= 40) {
-          setRadiusCenter([lat, lon]);
-          console.log('✅ Radius center selected:', [lat, lon]);
+          finalLat = lat;
+          finalLon = lon;
         } else {
           // Если координаты в другом формате [lon, lat], меняем местами
-          setRadiusCenter([lon, lat]);
-          console.log('✅ Radius center selected (swapped):', [lon, lat]);
+          finalLat = lon;
+          finalLon = lat;
+        }
+        
+        // Обрабатываем клик в зависимости от режима
+        if (activeAnalysisMode === 'radius') {
+          setRadiusCenter([finalLat, finalLon]);
+          console.log('✅ Radius center selected:', [finalLat, finalLon]);
+        } else if (activeAnalysisMode === 'area') {
+          setAreaCenter([finalLat, finalLon]);
+          setAreaType(null); // Сбрасываем тип области
+          setAreaPolygon(null); // Сбрасываем полигон
+          console.log('✅ Area center selected:', [finalLat, finalLon]);
+          // Определяем тип области
+          detectAreaType([finalLat, finalLon]);
         }
       }
     } catch (err) {
       console.error('Error handling map click:', err);
     }
-  }, [activeAnalysisMode]);
+  }, [activeAnalysisMode, detectAreaType]);
 
-  // Выполнение анализа области
+  // Выполнение анализа области по радиусу
   const handleAnalyze = useCallback(async () => {
-    if (!radiusCenter) return;
+    if (!radiusCenter) {
+      setError('Выберите центр анализа на карте');
+      return;
+    }
+
+    if (!radius || radius <= 0) {
+      setError('Укажите радиус анализа');
+      return;
+    }
 
     setIsAnalyzing(true);
     try {
       // Округляем координаты до 6 знаков после запятой (как ожидает бэкенд: max_digits=9, decimal_places=6)
-      // Это означает максимум 3 цифры до запятой и 6 после
       const centerLat = Number(radiusCenter[0].toFixed(6));
       const centerLon = Number(radiusCenter[1].toFixed(6));
       
@@ -409,12 +761,19 @@ export const MapContainer: React.FC = () => {
         return;
       }
       
+      // Проверяем радиус
+      if (isNaN(radius) || radius < 1 || radius > 50000) {
+        setError('Некорректный радиус (должен быть от 1 до 50000 метров)');
+        setIsAnalyzing(false);
+        return;
+      }
+      
       // Формируем запрос для анализа по радиусу
       const requestData: AnalysisRequest = {
         analysis_type: 'radius',
         center_lat: centerLat, // широта (округленная до 6 знаков)
         center_lon: centerLon, // долгота (округленная до 6 знаков)
-        radius_meters: radius,
+        radius_meters: Math.round(radius), // Округляем радиус до целого числа
       };
       
       // Добавляем фильтры категорий, если выбраны
@@ -422,17 +781,23 @@ export const MapContainer: React.FC = () => {
         requestData.category_filters = selectedCategories;
       }
       
-      console.log('📤 Sending analysis request:', requestData);
+      console.log('📤 Sending radius analysis request:', requestData);
       console.log('📍 Center coordinates (original):', radiusCenter);
       console.log('📍 Center coordinates (rounded):', [centerLat, centerLon]);
-      console.log('📏 Radius:', radius, 'meters');
+      console.log('📏 Radius:', radius, 'meters (rounded:', Math.round(radius), ')');
+      console.log('🔍 Category filters:', selectedCategories.length > 0 ? selectedCategories : 'none');
       
       const result = await mapsApi.analyzeArea(requestData);
       
       setAnalysisResult(result);
-      console.log('✅ Analysis result:', result);
+      console.log('✅ Radius analysis result:', {
+        health_index: result.health_index,
+        total_count: result.total_count,
+        analysis_type: result.analysis_type,
+        area_name: result.area_name,
+      });
     } catch (err: any) {
-      console.error('❌ Error analyzing area:', err);
+      console.error('❌ Error analyzing radius:', err);
       console.error('Error response:', err.response?.data);
       console.error('Error status:', err.response?.status);
       setError(
@@ -451,50 +816,86 @@ export const MapContainer: React.FC = () => {
     setCurrentZoom(zoom);
   }, []);
 
-  // Выполнение анализа области (город/улица)
+  // Сброс состояния области при смене режима
+  useEffect(() => {
+    if (activeAnalysisMode === 'radius') {
+      // При переключении на радиус сбрасываем состояние области
+      setAreaCenter(null);
+      setAreaType(null);
+      setAreaPolygon(null);
+    } else if (activeAnalysisMode === 'area') {
+      // При переключении на область сбрасываем состояние радиуса
+      setRadiusCenter(null);
+    }
+  }, [activeAnalysisMode]);
+
+  // Вычисление bounding box из координат полигона
+  const calculateBoundingBoxFromPolygon = useCallback((polygon: [number, number][]): {
+    sw_lat: number;
+    sw_lon: number;
+    ne_lat: number;
+    ne_lon: number;
+  } | null => {
+    if (!polygon || polygon.length === 0) {
+      return null;
+    }
+
+    // Находим минимальные и максимальные значения широты и долготы
+    let minLat = polygon[0][0];
+    let maxLat = polygon[0][0];
+    let minLon = polygon[0][1];
+    let maxLon = polygon[0][1];
+
+    for (const [lat, lon] of polygon) {
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+    }
+
+    return {
+      sw_lat: Number(minLat.toFixed(6)),
+      sw_lon: Number(minLon.toFixed(6)),
+      ne_lat: Number(maxLat.toFixed(6)),
+      ne_lon: Number(maxLon.toFixed(6)),
+    };
+  }, []);
+
+  // Выполнение анализа области (город/улица/квартал)
   const handleAreaAnalyze = useCallback(async () => {
-    if (!mapRef.current) return;
+    if (!areaCenter || !areaType || !areaPolygon) {
+      setError('Выберите точку на карте для анализа');
+      return;
+    }
 
     setIsAnalyzing(true);
     try {
-      const map = mapRef.current;
-      const bounds = map.getBounds();
+      // Вычисляем bounding box из координат полигона
+      const bbox = calculateBoundingBoxFromPolygon(areaPolygon);
       
-      if (!bounds || !Array.isArray(bounds) || bounds.length !== 2) {
-        setError('Не удалось получить границы карты');
+      if (!bbox) {
+        setError('Не удалось вычислить границы области');
         setIsAnalyzing(false);
         return;
       }
 
-      const sw = bounds[0];
-      const ne = bounds[1];
-
-      if (!sw || !ne || !Array.isArray(sw) || !Array.isArray(ne) || 
-          sw.length !== 2 || ne.length !== 2) {
-        setError('Некорректные границы карты');
-        setIsAnalyzing(false);
-        return;
-      }
-
-      const sw_lat = Number(sw[0].toFixed(6));
-      const sw_lon = Number(sw[1].toFixed(6));
-      const ne_lat = Number(ne[0].toFixed(6));
-      const ne_lon = Number(ne[1].toFixed(6));
-
-      // Определяем тип анализа на основе зума
-      let analysisType: 'city' | 'street' = 'city';
-      if (currentZoom >= ZOOM_THRESHOLDS.STREET_MIN) {
+      // Определяем тип анализа на основе типа области
+      let analysisType: 'city' | 'street';
+      
+      if (areaType === 'street') {
         analysisType = 'street';
-      } else if (currentZoom >= ZOOM_THRESHOLDS.CITY_MIN && currentZoom <= ZOOM_THRESHOLDS.CITY_MAX) {
+      } else if (areaType === 'block') {
+        analysisType = 'street'; // Квартал анализируем как улицу
+      } else {
         analysisType = 'city';
       }
 
       const requestData: AnalysisRequest = {
         analysis_type: analysisType,
-        sw_lat,
-        sw_lon,
-        ne_lat,
-        ne_lon,
+        sw_lat: bbox.sw_lat,
+        sw_lon: bbox.sw_lon,
+        ne_lat: bbox.ne_lat,
+        ne_lon: bbox.ne_lon,
       };
 
       // Добавляем фильтры категорий, если выбраны
@@ -503,8 +904,10 @@ export const MapContainer: React.FC = () => {
       }
 
       console.log('📤 Sending area analysis request:', requestData);
+      console.log('📍 Area type:', areaType);
       console.log('📍 Analysis type:', analysisType);
-      console.log('📍 Zoom:', currentZoom);
+      console.log('📍 Bounding box from polygon:', bbox);
+      console.log('📍 Polygon points count:', areaPolygon.length);
 
       const result = await mapsApi.analyzeArea(requestData);
       
@@ -513,6 +916,7 @@ export const MapContainer: React.FC = () => {
     } catch (err: any) {
       console.error('❌ Error analyzing area:', err);
       console.error('Error response:', err.response?.data);
+      console.error('Error status:', err.response?.status);
       setError(
         err.response?.data?.error || 
         err.response?.data?.message || 
@@ -522,7 +926,7 @@ export const MapContainer: React.FC = () => {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [currentZoom, selectedCategories]);
+  }, [areaCenter, areaType, areaPolygon, selectedCategories, calculateBoundingBoxFromPolygon]);
 
   // Фильтруем POI по категориям
   // Если ни одна категория не выбрана, не показываем метки
@@ -544,6 +948,9 @@ export const MapContainer: React.FC = () => {
         <AnalysisPanel
           currentZoom={currentZoom}
           onAreaAnalyze={handleAreaAnalyze}
+          areaCenter={areaCenter}
+          areaType={areaType}
+          isDetectingAreaType={isDetectingAreaType}
           radius={radius}
           onRadiusChange={setRadius}
           onRadiusAnalyze={handleAnalyze}
@@ -635,7 +1042,21 @@ export const MapContainer: React.FC = () => {
               />
             )}
             
-            {/* Маркер центра анализа */}
+            {/* Визуализация полигона для анализа области */}
+            {activeAnalysisMode === 'area' && areaPolygon && areaCenter && areaPolygon.length > 0 && (
+              <Polygon
+                geometry={[areaPolygon]}
+                options={{
+                  fillColor: '#00FF0020',
+                  fillOpacity: 0.3,
+                  strokeColor: '#00FF00',
+                  strokeOpacity: 0.8,
+                  strokeWidth: 2,
+                }}
+              />
+            )}
+            
+            {/* Маркер центра анализа для радиуса */}
             {activeAnalysisMode === 'radius' && radiusCenter && (
               <Placemark
                 geometry={radiusCenter}
@@ -651,7 +1072,21 @@ export const MapContainer: React.FC = () => {
               />
             )}
             
-            {/* Визуализация области для анализа города/улицы - убрана, так как визуализация области происходит автоматически через границы карты */}
+            {/* Маркер центра анализа для области */}
+            {activeAnalysisMode === 'area' && areaCenter && (
+              <Placemark
+                geometry={areaCenter}
+                properties={{
+                  hintContent: 'Центр анализа области',
+                  balloonContentHeader: 'Центр анализа области',
+                  balloonContentBody: `Тип: ${areaType === 'city' ? 'Город/Область' : areaType === 'street' ? 'Улица' : 'Квартал'}`,
+                }}
+                options={{
+                  preset: 'islands#blueCircleDotIcon',
+                  draggable: false,
+                }}
+              />
+            )}
           </Map>
         </YMaps>
 

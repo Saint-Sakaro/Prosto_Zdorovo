@@ -243,3 +243,17 @@ GAMIFICATION_CONFIG = {
 # Яндекс Geocoder API настройки
 YANDEX_GEOCODER_API_KEY = env('YANDEX_GEOCODER_API_KEY', default=None)
 
+# OpenSearch настройки (для точных геопространственных запросов)
+OPENSEARCH_HOST = env('OPENSEARCH_HOST', default='localhost')
+OPENSEARCH_PORT = env.int('OPENSEARCH_PORT', default=9200)
+OPENSEARCH_USE_SSL = env.bool('OPENSEARCH_USE_SSL', default=False)
+OPENSEARCH_VERIFY_CERTS = env.bool('OPENSEARCH_VERIFY_CERTS', default=True)
+OPENSEARCH_USERNAME = env('OPENSEARCH_USERNAME', default=None)
+OPENSEARCH_PASSWORD = env('OPENSEARCH_PASSWORD', default=None)
+
+# Формируем кортеж для аутентификации если указаны
+if OPENSEARCH_USERNAME and OPENSEARCH_PASSWORD:
+    OPENSEARCH_AUTH = (OPENSEARCH_USERNAME, OPENSEARCH_PASSWORD)
+else:
+    OPENSEARCH_AUTH = None
+

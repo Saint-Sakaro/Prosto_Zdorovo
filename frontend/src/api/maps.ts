@@ -105,6 +105,8 @@ export interface ReverseGeocodeResponse {
   components: {
     city?: string;
     street?: string;
+    district?: string;
+    house?: string;
   };
 }
 

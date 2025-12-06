@@ -20,6 +20,9 @@ geopy>=2.3.0
 # HTTP запросы (для геокодирования)
 requests>=2.31.0
 
+# OpenSearch для геопространственных запросов
+opensearch-py>=2.0.0
+
 # Утилиты
 python-dateutil>=2.8.0
 pytz>=2023.3

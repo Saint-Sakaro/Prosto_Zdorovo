@@ -12,6 +12,7 @@ from geopy.distance import geodesic
 from maps.models import POI, POICategory, POIRating
 from maps.services.health_index_calculator import HealthIndexCalculator
 from maps.services.geocoder_service import GeocoderService
+from maps.services.opensearch_service import OpenSearchService
 
 
 class AreaAnalysisService:
@@ -28,6 +29,7 @@ class AreaAnalysisService:
     def __init__(self):
         self.health_calculator = HealthIndexCalculator()
         self.geocoder = GeocoderService()
+        self.opensearch = OpenSearchService()
     
     def analyze_radius(self, center_lat, center_lon, radius_meters, category_filters=None):
         """
@@ -49,11 +51,8 @@ class AreaAnalysisService:
                 'total_count': int,  # Общее количество объектов
             }
         """
-        pois = self.get_pois_in_radius(center_lat, center_lon, radius_meters)
-        
-        # Применяем фильтры по категориям
-        if category_filters:
-            pois = pois.filter(category__slug__in=category_filters)
+        # Фильтры по категориям уже применяются в get_pois_in_radius
+        pois = self.get_pois_in_radius(center_lat, center_lon, radius_meters, category_filters)
         
         # Рассчитываем индекс здоровья
         health_index = self.health_calculator.calculate_area_index(pois)
@@ -142,30 +141,59 @@ class AreaAnalysisService:
             }
         }
     
-    def get_pois_in_radius(self, center_lat, center_lon, radius_meters):
+    def get_pois_in_radius(self, center_lat, center_lon, radius_meters, category_filters=None):
         """
         Получить все POI в радиусе от центра
+        
+        Использует OpenSearch для точного геопространственного запроса.
+        Если OpenSearch недоступен, использует fallback на Django ORM.
         
         Args:
             center_lat: Широта центра
             center_lon: Долгота центра
             radius_meters: Радиус в метрах
+            category_filters: Список slug категорий для фильтрации (опционально)
         
         Returns:
             QuerySet: POI в радиусе
         """
+        # Используем OpenSearch для точного поиска
+        if self.opensearch.enabled:
+            search_results = self.opensearch.search_in_radius(
+                float(center_lat),
+                float(center_lon),
+                float(radius_meters),
+                category_filters
+            )
+            
+            # Получаем UUID из результатов
+            poi_uuids = [result['uuid'] for result in search_results]
+            
+            # Возвращаем QuerySet с POI по UUID
+            return POI.objects.filter(
+                uuid__in=poi_uuids,
+                is_active=True
+            ).select_related('category', 'rating')
+        
+        # Fallback на старый метод если OpenSearch недоступен
         # Получаем все активные POI
         pois = POI.objects.filter(is_active=True).select_related('category', 'rating')
         
+        # Фильтруем по категориям если указаны
+        if category_filters:
+            pois = pois.filter(category__slug__in=category_filters)
+        
         # Фильтруем по радиусу
         # Для эффективности сначала применяем приблизительный фильтр по координатам
-        # (окружность вписывается в квадрат)
-        # Затем точно вычисляем расстояние для оставшихся объектов
+        # Используем описанный квадрат вокруг окружности (диагональ квадрата = диаметр окружности)
+        # Это гарантирует, что все точки в окружности попадут в квадрат
         
         # Приблизительный радиус в градусах (1 градус ≈ 111 км)
-        approx_radius_deg = radius_meters / 111000.0
+        # Используем диагональ квадрата = диаметр окружности для гарантии покрытия
+        # Диагональ квадрата = сторона * sqrt(2), поэтому сторона = радиус * 2 / sqrt(2) = радиус * sqrt(2)
+        approx_radius_deg = (radius_meters * 1.414) / 111000.0  # sqrt(2) ≈ 1.414
         
-        # Приблизительный фильтр (квадрат вокруг центра)
+        # Приблизительный фильтр (квадрат вокруг центра, описанный вокруг окружности)
         pois = pois.filter(
             latitude__gte=float(center_lat) - approx_radius_deg,
             latitude__lte=float(center_lat) + approx_radius_deg,
@@ -173,15 +201,19 @@ class AreaAnalysisService:
             longitude__lte=float(center_lon) + approx_radius_deg,
         )
         
-        # Точная фильтрация по радиусу
+        # Точная фильтрация по радиусу для всех точек в квадрате
         pois_in_radius = []
+        center_point = (float(center_lat), float(center_lon))
+        
         for poi in pois:
-            distance = geodesic(
-                (float(center_lat), float(center_lon)),
-                (float(poi.latitude), float(poi.longitude))
-            ).meters
-            if distance <= radius_meters:
-                pois_in_radius.append(poi.id)
+            try:
+                poi_point = (float(poi.latitude), float(poi.longitude))
+                distance = geodesic(center_point, poi_point).meters
+                if distance <= float(radius_meters):
+                    pois_in_radius.append(poi.id)
+            except (ValueError, TypeError) as e:
+                # Пропускаем POI с невалидными координатами
+                continue
         
         return POI.objects.filter(id__in=pois_in_radius).select_related('category', 'rating')
     

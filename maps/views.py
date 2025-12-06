@@ -32,11 +32,12 @@ class POIViewSet(viewsets.ReadOnlyModelViewSet):
     
     Эндпоинты:
     - GET /api/maps/pois/ - список POI (с фильтрацией)
-    - GET /api/maps/pois/{id}/ - детали POI
+    - GET /api/maps/pois/{uuid}/ - детали POI по UUID
     - GET /api/maps/pois/in-bbox/ - POI в bounding box
     """
     queryset = POI.objects.filter(is_active=True)
     permission_classes = [permissions.AllowAny]  # Публичный доступ для карты
+    lookup_field = 'uuid'  # Поиск по UUID вместо id
     
     def get_serializer_class(self):
         """

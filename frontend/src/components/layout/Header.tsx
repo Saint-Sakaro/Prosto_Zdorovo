@@ -1,0 +1,234 @@
+import React from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import styled from 'styled-components';
+import { motion } from 'framer-motion';
+import { theme } from '../../theme';
+import { Container } from '../common/Container';
+import { Button } from '../common/Button';
+import { useAuth } from '../../context/AuthContext';
+import { useState, useEffect } from 'react';
+import { authApi } from '../../api/auth';
+
+const HeaderWrapper = styled(motion.header)`
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border.main};
+  padding: ${({ theme }) => theme.spacing.md} 0;
+`;
+
+const HeaderContent = styled(Container)`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${({ theme }) => theme.spacing.lg};
+`;
+
+const Logo = styled(Link)`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.md};
+  font-family: ${({ theme }) => theme.typography.fontFamily.heading};
+  font-size: ${({ theme }) => theme.typography.fontSize['2xl']};
+  font-weight: ${({ theme }) => theme.typography.fontWeight.bold};
+  background: ${({ theme }) => theme.colors.primary.gradient};
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-decoration: none;
+  transition: all 0.3s ease;
+
+  &:hover {
+    transform: scale(1.05);
+  }
+`;
+
+const LogoIcon = styled.div`
+  width: 40px;
+  height: 40px;
+  border-radius: ${({ theme }) => theme.borderRadius.lg};
+  background: ${({ theme }) => theme.colors.primary.gradient};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: ${({ theme }) => theme.typography.fontSize.xl};
+  box-shadow: ${({ theme }) => theme.shadows.glow};
+`;
+
+const Nav = styled.nav`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.md};
+  flex: 1;
+  justify-content: center;
+
+  @media (max-width: 768px) {
+    display: none;
+  }
+`;
+
+const NavLink = styled(Link)<{ active?: boolean }>`
+  padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
+  color: ${({ active, theme }) =>
+    active ? theme.colors.primary.main : theme.colors.text.secondary};
+  font-weight: ${({ active, theme }) =>
+    active ? theme.typography.fontWeight.semibold : theme.typography.fontWeight.normal};
+  text-decoration: none;
+  border-radius: ${({ theme }) => theme.borderRadius.md};
+  transition: all 0.2s ease;
+  position: relative;
+
+  &:hover {
+    color: ${({ theme }) => theme.colors.primary.main};
+    background: rgba(0, 217, 165, 0.1);
+  }
+
+  ${({ active, theme }) =>
+    active &&
+    `
+    &::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 60%;
+      height: 2px;
+      background: ${theme.colors.primary.gradient};
+      border-radius: ${theme.borderRadius.full};
+    }
+  `}
+`;
+
+const UserSection = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.md};
+`;
+
+const UserInfo = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.md};
+`;
+
+const Username = styled.span`
+  font-size: ${({ theme }) => theme.typography.fontSize.sm};
+  font-weight: ${({ theme }) => theme.typography.fontWeight.medium};
+  color: ${({ theme }) => theme.colors.text.secondary};
+  
+  @media (max-width: 768px) {
+    display: none;
+  }
+`;
+
+export const Header: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { isAuthenticated, user, logout } = useAuth();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      if (isAuthenticated && user) {
+        try {
+          const userData = await authApi.getCurrentUser();
+          const adminStatus =
+            (userData as any).is_staff ||
+            (userData as any).is_superuser ||
+            (userData.user as any)?.is_staff ||
+            (userData.user as any)?.is_superuser ||
+            false;
+          setIsAdmin(adminStatus);
+        } catch (error) {
+          setIsAdmin(false);
+        }
+      } else {
+        setIsAdmin(false);
+      }
+    };
+
+    checkAdminStatus();
+  }, [isAuthenticated, user?.id]); // Обновляем при смене пользователя
+
+  const isActive = (path: string) => location.pathname === path;
+
+  const handleLogout = () => {
+    logout();
+    // Перезагружаем страницу для полного сброса всех данных
+    navigate('/', { replace: true });
+    window.location.reload();
+  };
+
+  return (
+    <HeaderWrapper
+      initial={{ y: -100 }}
+      animate={{ y: 0 }}
+      transition={{ duration: 0.3 }}
+    >
+      <HeaderContent>
+        <Logo to="/">
+          <LogoIcon>🏥</LogoIcon>
+          <span>Карта Здоровья</span>
+        </Logo>
+
+        <Nav>
+          <NavLink to="/" active={isActive('/')}>
+            Главная
+          </NavLink>
+          <NavLink to="/leaderboard" active={isActive('/leaderboard')}>
+            Лидеры
+          </NavLink>
+          {isAuthenticated && (
+            <>
+              <NavLink to="/map" active={isActive('/map')}>
+                Карта
+              </NavLink>
+              <NavLink to="/reviews" active={isActive('/reviews')}>
+                Отзывы
+              </NavLink>
+              <NavLink to="/rewards" active={isActive('/rewards')}>
+                Награды
+              </NavLink>
+              <NavLink to="/achievements" active={isActive('/achievements')}>
+                Достижения
+              </NavLink>
+              {isAdmin && (
+                <NavLink to="/moderation" active={isActive('/moderation')}>
+                  Модерация
+                </NavLink>
+              )}
+            </>
+          )}
+        </Nav>
+
+        <UserSection>
+          {isAuthenticated ? (
+            <UserInfo>
+              <Username>{user?.username}</Username>
+              <Button variant="outline" size="sm" to="/profile">
+                Профиль
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleLogout}>
+                Выйти
+              </Button>
+            </UserInfo>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" to="/login">
+                Войти
+              </Button>
+              <Button variant="outline" size="sm" to="/register">
+                Регистрация
+              </Button>
+            </>
+          )}
+        </UserSection>
+      </HeaderContent>
+    </HeaderWrapper>
+  );
+};
+

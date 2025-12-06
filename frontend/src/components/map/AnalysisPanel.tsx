@@ -6,89 +6,44 @@ import { Button } from '../common/Button';
 import { theme } from '../../theme';
 import { ZOOM_THRESHOLDS } from '../../types/maps';
 
-const ControlPanel = styled(Card)<{ collapsed: boolean }>`
-  position: absolute;
-  bottom: ${({ theme }) => theme.spacing.lg};
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1000;
-  padding: ${({ theme, collapsed }) => 
-    collapsed ? `${theme.spacing.xs} ${theme.spacing.sm}` : theme.spacing.lg};
+const ControlPanel = styled(Card)`
+  position: relative;
+  padding: ${({ theme }) => theme.spacing.lg};
   background: ${({ theme }) => theme.colors.background.card};
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  min-width: ${({ collapsed }) => collapsed ? 'auto' : '320px'};
-  max-width: 500px;
-  width: ${({ collapsed }) => collapsed ? 'auto' : '90%'};
-  transition: all 0.3s ease;
-  overflow: hidden;
-  border-radius: ${({ theme, collapsed }) => 
-    collapsed ? theme.borderRadius.full : theme.borderRadius.xl};
-
-  @media (max-width: 768px) {
-    width: ${({ collapsed }) => collapsed ? 'auto' : 'calc(100% - 32px)'};
-    left: ${({ theme }) => theme.spacing.md};
-    right: ${({ theme }) => theme.spacing.md};
-    transform: ${({ collapsed }) => collapsed ? 'none' : 'translateX(-50%)'};
-    max-width: none;
-  }
+  width: 100%;
+  border-radius: ${({ theme }) => theme.borderRadius.xl};
+  border: 1px solid ${({ theme }) => theme.colors.border.main};
+  box-shadow: ${({ theme }) => theme.shadows.md};
 `;
 
-const PanelHeader = styled.div<{ collapsed: boolean }>`
+const PanelHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: ${({ theme, collapsed }) => collapsed ? '0' : theme.spacing.md};
-  cursor: pointer;
-  user-select: none;
-  gap: ${({ theme }) => theme.spacing.sm};
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+  padding-bottom: ${({ theme }) => theme.spacing.md};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border.main};
 `;
 
-const PanelTitle = styled.h3<{ collapsed: boolean }>`
-  font-size: ${({ theme, collapsed }) => 
-    collapsed ? theme.typography.fontSize.sm : theme.typography.fontSize.lg};
+const PanelTitle = styled.h3`
+  font-size: ${({ theme }) => theme.typography.fontSize.lg};
   font-weight: ${({ theme }) => theme.typography.fontWeight.bold};
   color: ${({ theme }) => theme.colors.text.primary};
   margin: 0;
   display: flex;
   align-items: center;
-  gap: ${({ theme, collapsed }) => 
-    collapsed ? theme.spacing.xs : theme.spacing.sm};
-  white-space: nowrap;
-`;
-
-const CollapseButton = styled.button<{ collapsed: boolean }>`
-  background: ${({ theme, collapsed }) => 
-    collapsed ? 'transparent' : theme.colors.background.card};
-  border: none;
-  color: ${({ theme }) => theme.colors.text.secondary};
-  cursor: pointer;
-  font-size: ${({ theme, collapsed }) => 
-    collapsed ? theme.typography.fontSize.sm : theme.typography.fontSize.lg};
-  padding: ${({ theme, collapsed }) => 
-    collapsed ? `${theme.spacing.xs} ${theme.spacing.sm}` : theme.spacing.xs};
-  transition: all 0.2s ease;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  min-width: ${({ collapsed }) => collapsed ? '24px' : 'auto'};
-  min-height: ${({ collapsed }) => collapsed ? '24px' : 'auto'};
-
-  &:hover {
-    color: ${({ theme }) => theme.colors.text.primary};
-    background: ${({ theme }) => theme.colors.background.card};
-  }
+  gap: ${({ theme }) => theme.spacing.sm};
 `;
 
 const ModeTabs = styled.div`
   display: flex;
   gap: ${({ theme }) => theme.spacing.xs};
-  margin-bottom: ${({ theme }) => theme.spacing.md};
+  margin-bottom: ${({ theme }) => theme.spacing.lg};
   padding: ${({ theme }) => theme.spacing.xs};
   background: ${({ theme }) => theme.colors.background.main};
-  border-radius: ${({ theme }) => theme.borderRadius.md};
+  border-radius: ${({ theme }) => theme.borderRadius.lg};
   border: 1px solid ${({ theme }) => theme.colors.border.main};
 `;
 
@@ -128,36 +83,33 @@ const TabButton = styled.button<{ active: boolean }>`
   }
 `;
 
-const ContentArea = styled.div<{ collapsed: boolean }>`
-  min-height: ${({ collapsed }) => collapsed ? '0' : '120px'};
-  max-height: ${({ collapsed }) => collapsed ? '0' : '500px'};
-  overflow: ${({ collapsed }) => collapsed ? 'hidden' : 'visible'};
+const ContentArea = styled.div`
   position: relative;
-  transition: all 0.3s ease;
-  opacity: ${({ collapsed }) => collapsed ? '0' : '1'};
 `;
 
 const AnalysisMode = styled.div`
   display: flex;
   align-items: center;
   gap: ${({ theme }) => theme.spacing.sm};
-  padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
-  background: ${({ theme }) => theme.colors.primary.main}20;
+  padding: ${({ theme }) => theme.spacing.md};
+  background: linear-gradient(135deg, ${({ theme }) => theme.colors.primary.main}20 0%, ${({ theme }) => theme.colors.secondary.main}20 100%);
   border: 1px solid ${({ theme }) => theme.colors.primary.main};
-  border-radius: ${({ theme }) => theme.borderRadius.md};
+  border-radius: ${({ theme }) => theme.borderRadius.lg};
   font-size: ${({ theme }) => theme.typography.fontSize.sm};
-  font-weight: ${({ theme }) => theme.typography.fontWeight.medium};
+  font-weight: ${({ theme }) => theme.typography.fontWeight.semibold};
   color: ${({ theme }) => theme.colors.primary.main};
   margin-bottom: ${({ theme }) => theme.spacing.md};
+  box-shadow: ${({ theme }) => theme.shadows.sm};
 `;
 
 const Instructions = styled.div`
   font-size: ${({ theme }) => theme.typography.fontSize.sm};
-  color: ${({ theme }) => theme.colors.text.muted};
+  color: ${({ theme }) => theme.colors.text.secondary};
   margin-bottom: ${({ theme }) => theme.spacing.md};
-  padding: ${({ theme }) => theme.spacing.sm};
-  background: ${({ theme }) => theme.colors.background.card};
+  padding: ${({ theme }) => theme.spacing.md};
+  background: ${({ theme }) => theme.colors.background.main};
   border-radius: ${({ theme }) => theme.borderRadius.md};
+  border: 1px solid ${({ theme }) => theme.colors.border.main};
   line-height: ${({ theme }) => theme.typography.lineHeight.relaxed};
 `;
 
@@ -282,7 +234,6 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
   onModeChange,
 }) => {
   const [localRadius, setLocalRadius] = useState(radius);
-  const [isCollapsed, setIsCollapsed] = useState(false);
 
   // Определяем режим анализа области на основе зума
   const getAreaAnalysisMode = (): 'city' | 'street' | null => {
@@ -330,50 +281,32 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      collapsed={isCollapsed}
     >
-      <PanelHeader 
-        onClick={() => setIsCollapsed(!isCollapsed)}
-        collapsed={isCollapsed}
-      >
-        <PanelTitle collapsed={isCollapsed}>
-          <span>{isCollapsed ? '📊' : '🔍'}</span>
-          {!isCollapsed && <span>Анализ области</span>}
+      <PanelHeader>
+        <PanelTitle>
+          <span>🔍</span>
+          <span>Анализ области</span>
         </PanelTitle>
-        <CollapseButton
-          collapsed={isCollapsed}
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsCollapsed(!isCollapsed);
-          }}
-          aria-label={isCollapsed ? 'Развернуть' : 'Свернуть'}
-        >
-          {isCollapsed ? '▲' : '▼'}
-        </CollapseButton>
       </PanelHeader>
 
-      {!isCollapsed && (
-        <>
-          <ModeTabs>
-            <TabButton
-              active={activeMode === 'area'}
-              onClick={() => onModeChange('area')}
-            >
-              <span>🏙️</span>
-              <span>Область</span>
-            </TabButton>
-            <TabButton
-              active={activeMode === 'radius'}
-              onClick={() => onModeChange('radius')}
-            >
-              <span>📍</span>
-              <span>Радиус</span>
-            </TabButton>
-          </ModeTabs>
-        </>
-      )}
+      <ModeTabs>
+        <TabButton
+          active={activeMode === 'area'}
+          onClick={() => onModeChange('area')}
+        >
+          <span>🏙️</span>
+          <span>Область</span>
+        </TabButton>
+        <TabButton
+          active={activeMode === 'radius'}
+          onClick={() => onModeChange('radius')}
+        >
+          <span>📍</span>
+          <span>Радиус</span>
+        </TabButton>
+      </ModeTabs>
 
-      <ContentArea collapsed={isCollapsed}>
+      <ContentArea>
         <AnimatePresence mode="wait">
           {activeMode === 'area' ? (
             <motion.div
@@ -474,18 +407,6 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
           )}
         </AnimatePresence>
       </ContentArea>
-      
-      {isCollapsed && (
-        <PanelTitle collapsed={true} style={{ 
-          fontSize: '11px', 
-          color: 'rgba(255, 255, 255, 0.7)', 
-          justifyContent: 'center',
-          marginTop: '4px',
-          fontWeight: 500
-        }}>
-          {activeMode === 'area' ? '🏙️ Область' : '📍 Радиус'}
-        </PanelTitle>
-      )}
     </ControlPanel>
   );
 };

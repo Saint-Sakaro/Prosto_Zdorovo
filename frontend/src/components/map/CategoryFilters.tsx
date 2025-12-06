@@ -6,23 +6,17 @@ import { mapsApi, POICategory } from '../../api/maps';
 import { theme } from '../../theme';
 
 const FiltersCard = styled(Card)`
-  position: absolute;
-  top: ${({ theme }) => theme.spacing.lg};
-  left: ${({ theme }) => theme.spacing.lg};
-  z-index: 1000;
-  padding: ${({ theme }) => theme.spacing.md};
+  position: relative;
+  padding: ${({ theme }) => theme.spacing.lg};
   background: ${({ theme }) => theme.colors.background.card};
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  max-width: 300px;
-  max-height: calc(100vh - 120px);
+  width: 100%;
+  max-height: 400px;
   overflow-y: auto;
-
-  @media (max-width: 768px) {
-    max-width: calc(100% - ${({ theme }) => theme.spacing.xl});
-    left: ${({ theme }) => theme.spacing.md};
-    right: ${({ theme }) => theme.spacing.md};
-  }
+  border: 1px solid ${({ theme }) => theme.colors.border.main};
+  border-radius: ${({ theme }) => theme.borderRadius.xl};
+  box-shadow: ${({ theme }) => theme.shadows.md};
 `;
 
 const FiltersHeader = styled.div`
@@ -158,6 +152,8 @@ export const CategoryFilters: React.FC<CategoryFiltersProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [userHasInteracted, setUserHasInteracted] = useState(false);
 
   useEffect(() => {
     const loadCategories = async () => {
@@ -181,7 +177,17 @@ export const CategoryFilters: React.FC<CategoryFiltersProps> = ({
     loadCategories();
   }, []);
 
+  // Автоматически выбираем все категории при первой загрузке
+  useEffect(() => {
+    if (categories.length > 0 && !isInitialized && !userHasInteracted) {
+      const allSlugs = categories.map(cat => cat.slug);
+      onCategoriesChange(allSlugs);
+      setIsInitialized(true);
+    }
+  }, [categories, isInitialized, userHasInteracted, onCategoriesChange]);
+
   const handleToggleCategory = (slug: string) => {
+    setUserHasInteracted(true);
     if (selectedCategories.includes(slug)) {
       onCategoriesChange(selectedCategories.filter((s) => s !== slug));
     } else {
@@ -190,6 +196,7 @@ export const CategoryFilters: React.FC<CategoryFiltersProps> = ({
   };
 
   const handleSelectAll = () => {
+    setUserHasInteracted(true);
     if (selectedCategories.length === categories.length) {
       onCategoriesChange([]);
     } else {
@@ -231,6 +238,36 @@ export const CategoryFilters: React.FC<CategoryFiltersProps> = ({
             transition={{ duration: 0.2 }}
           >
             <FilterList>
+              {Array.isArray(categories) && categories.length > 0 && (
+                <FilterItem
+                  key="select-all"
+                  checked={selectedCategories.length === categories.length && categories.length > 0}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.2 }}
+                  style={{ 
+                    fontWeight: 600,
+                    background: selectedCategories.length === categories.length && categories.length > 0
+                      ? 'linear-gradient(135deg, rgba(0, 217, 165, 0.2) 0%, rgba(99, 102, 241, 0.2) 100%)'
+                      : 'transparent',
+                    border: selectedCategories.length === categories.length && categories.length > 0
+                      ? '1px solid rgba(0, 217, 165, 0.5)'
+                      : '1px solid rgba(255, 255, 255, 0.1)'
+                  }}
+                >
+                  <Checkbox
+                    checked={selectedCategories.length === categories.length && categories.length > 0}
+                    onChange={handleSelectAll}
+                  />
+                  <FilterLabel style={{ fontWeight: 600 }}>
+                    <span>✓</span>
+                    {selectedCategories.length === categories.length && categories.length > 0
+                      ? 'Снять все'
+                      : 'Выбрать все'}
+                  </FilterLabel>
+                </FilterItem>
+              )}
+
               {Array.isArray(categories) && categories.map((category) => (
                 <FilterItem
                   key={category.uuid}
@@ -250,14 +287,6 @@ export const CategoryFilters: React.FC<CategoryFiltersProps> = ({
                 </FilterItem>
               ))}
             </FilterList>
-
-            {Array.isArray(categories) && categories.length > 0 && (
-              <SelectAllButton onClick={handleSelectAll}>
-                {selectedCategories.length === categories.length
-                  ? 'Снять все'
-                  : 'Выбрать все'}
-              </SelectAllButton>
-            )}
           </motion.div>
         )}
       </AnimatePresence>

@@ -2,10 +2,13 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import { YMaps, Map, Placemark, Circle } from '@pbe/react-yandex-maps';
 import { mapsApi, POI, POIDetails, AnalysisResult, AnalysisRequest } from '../../api/maps';
+import { gamificationApi } from '../../api/gamification';
 import { CategoryFilters } from './CategoryFilters';
 import { POIModal } from './POIModal';
 import { AnalysisPanel } from './AnalysisPanel';
 import { AnalysisResults } from './AnalysisResults';
+import { MapSidebar } from './MapSidebar';
+import { ReviewFormModal } from './ReviewFormModal';
 import { ZOOM_THRESHOLDS } from '../../types/maps';
 import { Card } from '../common/Card';
 import { theme } from '../../theme';
@@ -15,11 +18,23 @@ const MapWrapper = styled.div`
   height: calc(100vh - 80px);
   position: relative;
   background: ${({ theme }) => theme.colors.background.main};
+  display: flex;
+  flex-direction: row;
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+  }
 `;
 
 const MapContainerDiv = styled.div`
-  width: 100%;
+  flex: 1;
   height: 100%;
+  position: relative;
+
+  @media (max-width: 768px) {
+    height: 60vh;
+    min-height: 400px;
+  }
 `;
 
 const LoadingOverlay = styled(Card)`
@@ -72,6 +87,7 @@ export const MapContainer: React.FC = () => {
   const [selectedPOI, setSelectedPOI] = useState<POI | null>(null);
   const [selectedPOIDetails, setSelectedPOIDetails] = useState<POIDetails | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isReviewFormOpen, setIsReviewFormOpen] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const mapRef = useRef<any>(null);
   
@@ -102,6 +118,7 @@ export const MapContainer: React.FC = () => {
       };
 
       // Добавляем фильтр по категориям, если выбраны
+      // Если категории не выбраны, загружаем все POI
       if (selectedCategories.length > 0) {
         params.categories = selectedCategories.join(',');
       }
@@ -149,7 +166,37 @@ export const MapContainer: React.FC = () => {
 
   // Загрузка POI при изменении видимой области карты
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapRef.current) {
+      // Если карта еще не готова, ждем немного и пробуем снова
+      const timer = setTimeout(() => {
+        if (mapRef.current) {
+          const map = mapRef.current;
+          if (map) {
+            try {
+              const bounds = map.getBounds();
+              if (bounds && Array.isArray(bounds) && bounds.length === 2) {
+                const sw = bounds[0];
+                const ne = bounds[1];
+                if (sw && ne && Array.isArray(sw) && Array.isArray(ne) && 
+                    sw.length === 2 && ne.length === 2) {
+                  const sw_lat = sw[0];
+                  const sw_lon = sw[1];
+                  const ne_lat = ne[0];
+                  const ne_lon = ne[1];
+                  if (!isNaN(sw_lat) && !isNaN(sw_lon) && !isNaN(ne_lat) && !isNaN(ne_lon) &&
+                      sw_lat <= ne_lat && sw_lon <= ne_lon) {
+                    loadPOIs({ sw_lat, sw_lon, ne_lat, ne_lon });
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('Error loading POIs on retry:', err);
+            }
+          }
+        }
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
 
     const map = mapRef.current;
     if (!map) return;
@@ -192,9 +239,13 @@ export const MapContainer: React.FC = () => {
     map.events.add('boundschange', handleBoundsChange);
 
     // Загружаем POI при первой загрузке
-    handleBoundsChange();
+    // Используем небольшую задержку, чтобы карта успела инициализироваться
+    const initialLoadTimer = setTimeout(() => {
+      handleBoundsChange();
+    }, 500);
 
     return () => {
+      clearTimeout(initialLoadTimer);
       if (map && map.events) {
         map.events.remove('boundschange', handleBoundsChange);
       }
@@ -265,7 +316,30 @@ export const MapContainer: React.FC = () => {
   const handleCreateReview = useCallback((poi: POIDetails) => {
     console.log('Create review for POI:', poi);
     setIsModalOpen(false);
+    setIsReviewFormOpen(true);
   }, []);
+
+  const handleReviewSubmit = useCallback(async (data: {
+    review_type: 'poi_review' | 'incident';
+    latitude: number;
+    longitude: number;
+    category: string;
+    content: string;
+    has_media: boolean;
+  }) => {
+    try {
+      await gamificationApi.createReview(data);
+      setIsReviewFormOpen(false);
+      // Обновляем детали POI, чтобы показать новый рейтинг
+      if (selectedPOIDetails) {
+        const updatedDetails = await mapsApi.getPOIDetails(selectedPOIDetails.uuid);
+        setSelectedPOIDetails(updatedDetails);
+        setIsModalOpen(true);
+      }
+    } catch (error) {
+      throw error;
+    }
+  }, [selectedPOIDetails]);
 
 
   // Получаем preset стиль на основе цвета категории
@@ -451,22 +525,50 @@ export const MapContainer: React.FC = () => {
   }, [currentZoom, selectedCategories]);
 
   // Фильтруем POI по категориям
+  // Если ни одна категория не выбрана, не показываем метки
   const filteredPois = pois.filter((poi) => {
     if (selectedCategories.length === 0) {
-      return true;
+      return false; // Не показываем метки, если ничего не выбрано
     }
     return selectedCategories.includes(poi.category_slug);
   });
 
   return (
     <MapWrapper>
-      <YMaps
-        query={{
-          apikey: '5e4a4a8a-a758-45a6-a7c7-56ae3f6cbf63',
-          lang: 'ru_RU',
-        }}
-      >
-        <MapContainerDiv>
+      <MapSidebar poisCount={filteredPois.length}>
+        <CategoryFilters
+          selectedCategories={selectedCategories}
+          onCategoriesChange={setSelectedCategories}
+        />
+        
+        <AnalysisPanel
+          currentZoom={currentZoom}
+          onAreaAnalyze={handleAreaAnalyze}
+          radius={radius}
+          onRadiusChange={setRadius}
+          onRadiusAnalyze={handleAnalyze}
+          radiusCenter={radiusCenter}
+          onMapClick={handleMapClick}
+          isAnalyzing={isAnalyzing}
+          activeMode={activeAnalysisMode}
+          onModeChange={setActiveAnalysisMode}
+        />
+
+        {analysisResult && (
+          <AnalysisResults
+            result={analysisResult}
+            onClose={() => setAnalysisResult(null)}
+          />
+        )}
+      </MapSidebar>
+
+      <MapContainerDiv>
+        <YMaps
+          query={{
+            apikey: '5e4a4a8a-a758-45a6-a7c7-56ae3f6cbf63',
+            lang: 'ru_RU',
+          }}
+        >
           <Map
             defaultState={mapState}
             width="100%"
@@ -519,20 +621,6 @@ export const MapContainer: React.FC = () => {
               );
             })}
             
-            {/* Тестовый маркер в центре карты */}
-            <Placemark
-              geometry={mapState.center} // [lat, lon]
-              properties={{
-                hintContent: 'Тестовый маркер в центре',
-                balloonContentHeader: 'Тестовый маркер',
-                balloonContentBody: `Центр карты: [${mapState.center[0]}, ${mapState.center[1]}]`,
-              }}
-              options={{
-                preset: 'islands#greenCircleDotIcon',
-                draggable: false,
-              }}
-            />
-            
             {/* Визуализация круга для анализа по радиусу */}
             {activeAnalysisMode === 'radius' && radiusCenter && (
               <Circle
@@ -565,45 +653,10 @@ export const MapContainer: React.FC = () => {
             
             {/* Визуализация области для анализа города/улицы - убрана, так как визуализация области происходит автоматически через границы карты */}
           </Map>
-        </MapContainerDiv>
-      </YMaps>
+        </YMaps>
 
-      {loading && pois.length === 0 && (
-        <LoadingOverlay>
-          <div>Загрузка карты...</div>
-        </LoadingOverlay>
-      )}
-
-      {error && <ErrorMessage>{error}</ErrorMessage>}
-
-      <CategoryFilters
-        selectedCategories={selectedCategories}
-        onCategoriesChange={setSelectedCategories}
-      />
-
-      <InfoPanel>
-        Объектов на карте: {filteredPois.length}
-      </InfoPanel>
-
-      <AnalysisPanel
-        currentZoom={currentZoom}
-        onAreaAnalyze={handleAreaAnalyze}
-        radius={radius}
-        onRadiusChange={setRadius}
-        onRadiusAnalyze={handleAnalyze}
-        radiusCenter={radiusCenter}
-        onMapClick={handleMapClick}
-        isAnalyzing={isAnalyzing}
-        activeMode={activeAnalysisMode}
-        onModeChange={setActiveAnalysisMode}
-      />
-
-      {analysisResult && (
-        <AnalysisResults
-          result={analysisResult}
-          onClose={() => setAnalysisResult(null)}
-        />
-      )}
+        {error && <ErrorMessage>{error}</ErrorMessage>}
+      </MapContainerDiv>
 
       <POIModal
         poi={selectedPOIDetails}
@@ -613,6 +666,15 @@ export const MapContainer: React.FC = () => {
           setSelectedPOIDetails(null);
         }}
         onCreateReview={handleCreateReview}
+      />
+
+      <ReviewFormModal
+        poi={selectedPOIDetails}
+        isOpen={isReviewFormOpen}
+        onClose={() => {
+          setIsReviewFormOpen(false);
+        }}
+        onSubmit={handleReviewSubmit}
       />
     </MapWrapper>
   );

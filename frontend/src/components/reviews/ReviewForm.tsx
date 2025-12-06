@@ -21,6 +21,8 @@ interface ReviewFormProps {
     latitude?: number;
     longitude?: number;
   };
+  initialCategory?: string;
+  initialReviewType?: 'poi_review' | 'incident';
 }
 
 const FormCard = styled(Card)`
@@ -195,9 +197,11 @@ export const ReviewForm: React.FC<ReviewFormProps> = ({
   onSubmit,
   onCancel,
   initialData,
+  initialCategory,
+  initialReviewType,
 }) => {
   const [reviewType, setReviewType] = useState<'poi_review' | 'incident'>(
-    'poi_review'
+    initialReviewType || 'poi_review'
   );
   const [latitude, setLatitude] = useState(
     initialData?.latitude?.toString() || ''
@@ -205,7 +209,7 @@ export const ReviewForm: React.FC<ReviewFormProps> = ({
   const [longitude, setLongitude] = useState(
     initialData?.longitude?.toString() || ''
   );
-  const [category, setCategory] = useState('');
+  const [category, setCategory] = useState(initialCategory || '');
   const [content, setContent] = useState('');
   const [hasMedia, setHasMedia] = useState(false);
   const [error, setError] = useState('');
@@ -267,7 +271,11 @@ export const ReviewForm: React.FC<ReviewFormProps> = ({
             active={reviewType === 'poi_review'}
             onClick={() => {
               setReviewType('poi_review');
-              setCategory('');
+              // Сбрасываем категорию только если она не подходит для нового типа
+              const newCategories = categories.poi_review;
+              if (category && !newCategories.includes(category)) {
+                setCategory(initialCategory || '');
+              }
             }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
@@ -280,7 +288,11 @@ export const ReviewForm: React.FC<ReviewFormProps> = ({
             active={reviewType === 'incident'}
             onClick={() => {
               setReviewType('incident');
-              setCategory('');
+              // Сбрасываем категорию только если она не подходит для нового типа
+              const newCategories = categories.incident;
+              if (category && !newCategories.includes(category)) {
+                setCategory('');
+              }
             }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}

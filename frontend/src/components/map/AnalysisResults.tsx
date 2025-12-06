@@ -1,34 +1,20 @@
 import React from 'react';
 import styled from 'styled-components';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { AnalysisResult } from '../../api/maps';
 import { theme } from '../../theme';
 
 const ResultsPanel = styled(Card)`
-  position: absolute;
-  top: ${({ theme }) => theme.spacing.lg};
-  right: ${({ theme }) => theme.spacing.lg};
-  z-index: 1000;
+  position: relative;
   padding: ${({ theme }) => theme.spacing.lg};
   background: ${({ theme }) => theme.colors.background.card};
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  min-width: 320px;
-  max-width: 400px;
-  max-height: calc(100vh - 200px);
+  width: 100%;
+  max-height: 500px;
   overflow-y: auto;
-
-  @media (max-width: 768px) {
-    position: fixed;
-    top: auto;
-    bottom: ${({ theme }) => theme.spacing.lg};
-    right: ${({ theme }) => theme.spacing.md};
-    left: ${({ theme }) => theme.spacing.md};
-    max-width: none;
-    max-height: 50vh;
-  }
+  border: 1px solid ${({ theme }) => theme.colors.border.main};
 `;
 
 const PanelHeader = styled.div`
@@ -165,14 +151,7 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({
   const categoryStats = Object.entries(result.category_stats || {});
 
   return (
-    <AnimatePresence>
-      <ResultsPanel
-        as={motion.div}
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: 20 }}
-        transition={{ duration: 0.3 }}
-      >
+    <ResultsPanel>
         <PanelHeader>
           <PanelTitle>Результаты анализа</PanelTitle>
           <CloseButton onClick={onClose}>×</CloseButton>
@@ -212,7 +191,6 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({
           Всего объектов в анализе: {result.total_count}
         </TotalCount>
       </ResultsPanel>
-    </AnimatePresence>
   );
 };
 

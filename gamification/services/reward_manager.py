@@ -79,6 +79,19 @@ class RewardManager:
         else:
             reason = 'duplicate_review'
         
+        # Подготавливаем метаданные транзакции
+        metadata = {
+            'reputation': reward_data['reputation'],
+            'monthly_reputation': reward_data['monthly_reputation'],
+            'is_unique': is_unique,
+            'has_media': has_media,
+        }
+        
+        # Добавляем анализ качества, если он был выполнен
+        if 'quality_analysis' in reward_data:
+            metadata['quality_analysis'] = reward_data['quality_analysis']
+            metadata['quality_multiplier'] = reward_data.get('quality_multiplier', 1.0)
+        
         # Создаем транзакцию
         transaction_obj = RewardTransaction.objects.create(
             user=review.author,
@@ -87,12 +100,7 @@ class RewardManager:
             reason=reason,
             review=review,
             balance_after=user_profile.points_balance,
-            metadata={
-                'reputation': reward_data['reputation'],
-                'monthly_reputation': reward_data['monthly_reputation'],
-                'is_unique': is_unique,
-                'has_media': has_media,
-            }
+            metadata=metadata
         )
         
         return transaction_obj

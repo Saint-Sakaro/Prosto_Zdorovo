@@ -394,6 +394,107 @@ class LLMService:
                 'suggestions': []
             }
     
+    def analyze_review_quality(self, review_text, category=None, has_media=False):
+        """
+        Анализирует отзыв на полноту и востребованность через GigaChat
+        
+        Args:
+            review_text: Текст отзыва
+            category: Категория объекта (опционально)
+            has_media: Есть ли медиа-доказательства
+        
+        Returns:
+            dict: {
+                'completeness_score': float (0.0-1.0),  # Полнота отзыва
+                'usefulness_score': float (0.0-1.0),    # Востребованность/полезность
+                'quality_level': str ('low'|'medium'|'high'),  # Общий уровень качества
+                'details': str,  # Детальное описание оценки
+            }
+        """
+        prompt = f"""
+        Проанализируй следующий отзыв на полноту и востребованность:
+        
+        "{review_text}"
+        
+        {f"Категория объекта: {category}" if category else ""}
+        {"Отзыв содержит фото/медиа" if has_media else "Отзыв без медиа"}
+        
+        Оцени:
+        1. ПОЛНОТУ отзыва (0.0-1.0):
+           - Насколько подробно описан объект
+           - Есть ли конкретные детали и факты
+           - Упомянуты ли важные аспекты (качество, состояние, услуги и т.д.)
+           - Достаточно ли информации для принятия решения
+        
+        2. ВОСТРЕБОВАННОСТЬ отзыва (0.0-1.0):
+           - Насколько полезен отзыв для других пользователей
+           - Содержит ли практическую информацию
+           - Поможет ли отзыв принять решение о посещении/использовании
+           - Есть ли уникальная ценная информация
+        
+        Верни JSON в формате:
+        {{
+          "completeness_score": 0.0-1.0,
+          "usefulness_score": 0.0-1.0,
+          "quality_level": "low"|"medium"|"high",
+          "details": "Детальное описание оценки"
+        }}
+        """
+        
+        system_prompt = """Ты эксперт по оценке качества отзывов.
+        Твоя задача - объективно оценить полноту и востребованность отзыва.
+        Будь строгим, но справедливым в оценке.
+        Всегда возвращай валидный JSON без дополнительных комментариев."""
+        
+        response_text = self._call_gigachat(prompt, system_prompt)
+        
+        if not response_text:
+            logger.warning('Failed to analyze review quality via GIGACHAT, using defaults')
+            return {
+                'completeness_score': 0.5,
+                'usefulness_score': 0.5,
+                'quality_level': 'medium',
+                'details': 'Не удалось проанализировать через LLM'
+            }
+        
+        try:
+            # Убираем markdown код-блоки если есть
+            if '```json' in response_text:
+                response_text = response_text.split('```json')[1].split('```')[0].strip()
+            elif '```' in response_text:
+                response_text = response_text.split('```')[1].split('```')[0].strip()
+            
+            analysis = json.loads(response_text)
+            
+            # Валидация и нормализация
+            completeness = float(analysis.get('completeness_score', 0.5))
+            usefulness = float(analysis.get('usefulness_score', 0.5))
+            
+            # Определяем уровень качества
+            avg_score = (completeness + usefulness) / 2
+            if avg_score >= 0.7:
+                quality_level = 'high'
+            elif avg_score >= 0.4:
+                quality_level = 'medium'
+            else:
+                quality_level = 'low'
+            
+            return {
+                'completeness_score': max(0.0, min(1.0, completeness)),
+                'usefulness_score': max(0.0, min(1.0, usefulness)),
+                'quality_level': analysis.get('quality_level', quality_level),
+                'details': analysis.get('details', '')
+            }
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            logger.error(f'Failed to parse review quality analysis: {str(e)}')
+            logger.debug(f'Response text: {response_text}')
+            return {
+                'completeness_score': 0.5,
+                'usefulness_score': 0.5,
+                'quality_level': 'medium',
+                'details': f'Ошибка парсинга: {str(e)}'
+            }
+    
     def check_sentiment_consistency(self, review_text, rating):
         """
         Проверяет соответствие сентимента текста и оценки

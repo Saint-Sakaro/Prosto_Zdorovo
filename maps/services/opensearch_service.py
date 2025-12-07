@@ -141,7 +141,7 @@ class OpenSearchService:
                     'lat': float(poi.latitude),
                     'lon': float(poi.longitude)
                 },
-                'category_slug': poi.category.slug if poi.category else '',
+                'category_slug': getattr(poi.category, 'slug', '') if poi.category else '',
                 'category_name': poi.category.name if poi.category else '',
                 'health_score': float(poi.rating.health_score) if poi.rating else 50.0,
                 'is_active': poi.is_active,
@@ -217,6 +217,7 @@ class OpenSearchService:
         
         try:
             # Формируем запрос
+            # Используем should для фильтра по статусу модерации (поддержка старых документов без этого поля)
             query = {
                 'bool': {
                     'must': [
@@ -233,42 +234,27 @@ class OpenSearchService:
                             'term': {
                                 'is_active': True
                             }
-                        },
+                        }
+                    ],
+                    'should': [
                         {
                             'term': {
-                                'is_active': True
+                                'moderation_status': 'approved'
+                            }
+                        },
+                        {
+                            'bool': {
+                                'must_not': {
+                                    'exists': {
+                                        'field': 'moderation_status'
+                                    }
+                                }
                             }
                         }
                     ],
-                    'must_not': [
-                        {
-                            'exists': {
-                                'field': 'moderation_status'
-                            }
-                        }
-                    ]
+                    'minimum_should_match': 1
                 }
             }
-            
-            # Фильтр по статусу модерации (если поле есть в документе)
-            # Используем should для поддержки старых документов без этого поля
-            query['bool']['should'] = [
-                {
-                    'term': {
-                        'moderation_status': 'approved'
-                    }
-                },
-                {
-                    'bool': {
-                        'must_not': {
-                            'exists': {
-                                'field': 'moderation_status'
-                            }
-                        }
-                    }
-                }
-            ]
-            query['bool']['minimum_should_match'] = 1
             
             # Добавляем фильтр по категориям если указаны
             if category_filters:

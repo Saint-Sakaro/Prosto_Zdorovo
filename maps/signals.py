@@ -68,8 +68,8 @@ def update_poi_rating_on_review(sender, instance, **kwargs):
         from geopy.distance import geodesic
         from maps.models import POI
         
-        # Ищем ближайший POI к координатам отзыва
-        pois = POI.objects.filter(is_active=True)
+        # Ищем ближайший POI к координатам отзыва среди одобренных мест
+        pois = POI.objects.filter(is_active=True, moderation_status='approved')
         closest_poi = None
         min_distance = float('inf')
         

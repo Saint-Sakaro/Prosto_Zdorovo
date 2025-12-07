@@ -60,6 +60,7 @@ export const CreateReview: React.FC = () => {
     category: string;
     content: string;
     has_media: boolean;
+    poi?: string;
   }) => {
     try {
       const review = await gamificationApi.createReview(data);
@@ -70,7 +71,8 @@ export const CreateReview: React.FC = () => {
       setTimeout(() => {
         navigate('/reviews');
       }, 3000);
-    } catch (error) {
+    } catch (error: any) {
+      // Ошибка будет обработана в ReviewForm компоненте
       throw error;
     }
   };

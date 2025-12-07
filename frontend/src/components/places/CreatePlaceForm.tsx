@@ -20,14 +20,11 @@ import { Select } from '../common/Select';
 import { theme } from '../../theme';
 import { 
   getCategories, 
-  getCategorySchema, 
   geocodeAddress, 
   reverseGeocode,
-  PlaceSubmissionData,
-  FormField 
+  PlaceSubmissionData
 } from '../../api/places';
 import { POICategory } from '../../api/maps';
-import { FormSchema } from '../../api/maps';
 
 declare global {
   interface Window {
@@ -205,9 +202,7 @@ export const CreatePlaceForm: React.FC<CreatePlaceFormProps> = ({
 }) => {
   const [categories, setCategories] = useState<POICategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
-  const [formSchema, setFormSchema] = useState<FormSchema | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadingSchema, setLoadingSchema] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [geocoding, setGeocoding] = useState(false);
 
@@ -240,44 +235,8 @@ export const CreatePlaceForm: React.FC<CreatePlaceFormProps> = ({
     loadCategories();
   }, []);
 
-  // Загрузка схемы формы при выборе категории
-  useEffect(() => {
-    const loadSchema = async () => {
-      if (!selectedCategory) {
-        setFormSchema(null);
-        setFormData({});
-        return;
-      }
-
-      try {
-        setLoadingSchema(true);
-        const schema = await getCategorySchema(selectedCategory);
-        setFormSchema(schema);
-        // Инициализируем formData пустыми значениями
-        const initialFormData: Record<string, any> = {};
-        schema.schema_json.fields.forEach((field) => {
-          if (field.type === 'boolean') {
-            initialFormData[field.id] = false;
-          } else if (field.type === 'range') {
-            initialFormData[field.id] = field.scale_min || 0;
-          } else if (field.type === 'select') {
-            initialFormData[field.id] = field.options?.[0] || '';
-          } else {
-            initialFormData[field.id] = '';
-          }
-        });
-        setFormData(initialFormData);
-      } catch (err: any) {
-        console.error('Ошибка загрузки схемы:', err);
-        setError('Не удалось загрузить схему формы для категории');
-        setFormSchema(null);
-      } finally {
-        setLoadingSchema(false);
-      }
-    };
-
-    loadSchema();
-  }, [selectedCategory]);
+  // Схемы форм больше не используются - обработка через Gigachat
+  // form_data остается пустым объектом для совместимости с API
 
   // Геокодирование адреса
   const handleAddressGeocode = async () => {
@@ -290,9 +249,12 @@ export const CreatePlaceForm: React.FC<CreatePlaceFormProps> = ({
       setGeocoding(true);
       setError(null);
       const result = await geocodeAddress(address);
-      setLatitude(result.latitude);
-      setLongitude(result.longitude);
-      setMapPosition([result.latitude, result.longitude]);
+      // Округляем координаты до 6 знаков после запятой
+      const roundedLat = parseFloat(result.latitude.toFixed(6));
+      const roundedLon = parseFloat(result.longitude.toFixed(6));
+      setLatitude(roundedLat);
+      setLongitude(roundedLon);
+      setMapPosition([roundedLat, roundedLon]);
       setAddress(result.formatted_address);
     } catch (err: any) {
       console.error('Ошибка геокодирования:', err);
@@ -322,13 +284,17 @@ export const CreatePlaceForm: React.FC<CreatePlaceFormProps> = ({
           finalLon = lat;
         }
 
-        setLatitude(finalLat);
-        setLongitude(finalLon);
-        setMapPosition([finalLat, finalLon]);
+        // Округляем координаты до 6 знаков после запятой
+        const roundedLat = parseFloat(finalLat.toFixed(6));
+        const roundedLon = parseFloat(finalLon.toFixed(6));
+
+        setLatitude(roundedLat);
+        setLongitude(roundedLon);
+        setMapPosition([roundedLat, roundedLon]);
 
         // Обратное геокодирование
         try {
-          const result = await reverseGeocode(finalLat, finalLon);
+          const result = await reverseGeocode(roundedLat, roundedLon);
           setAddress(result.formatted_address);
         } catch (err) {
           console.error('Ошибка обратного геокодирования:', err);
@@ -339,127 +305,7 @@ export const CreatePlaceForm: React.FC<CreatePlaceFormProps> = ({
     }
   };
 
-  // Обновление значений динамических полей
-  const handleFieldChange = (fieldId: string, value: any) => {
-    setFormData((prev) => ({
-      ...prev,
-      [fieldId]: value,
-    }));
-  };
-
-  // Рендеринг динамических полей формы
-  const renderFormFields = () => {
-    if (!formSchema) return null;
-
-    return formSchema.schema_json.fields.map((field: FormField) => {
-      switch (field.type) {
-        case 'boolean':
-          return (
-            <CheckboxWrapper key={field.id}>
-              <Checkbox
-                type="checkbox"
-                checked={formData[field.id] || false}
-                onChange={(e) => handleFieldChange(field.id, e.target.checked)}
-              />
-              <div>
-                <FieldLabel>{field.label}</FieldLabel>
-                {field.description && (
-                  <FieldDescription>{field.description}</FieldDescription>
-                )}
-              </div>
-            </CheckboxWrapper>
-          );
-
-        case 'range':
-          return (
-            <div key={field.id}>
-              <FieldLabel>
-                {field.label}
-                {field.required && ' *'}
-              </FieldLabel>
-              {field.description && (
-                <FieldDescription>{field.description}</FieldDescription>
-              )}
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <RangeInput
-                  type="range"
-                  min={field.scale_min || 0}
-                  max={field.scale_max || 100}
-                  value={formData[field.id] || field.scale_min || 0}
-                  onChange={(e) => handleFieldChange(field.id, parseFloat(e.target.value))}
-                />
-                <RangeValue>{formData[field.id] || field.scale_min || 0}</RangeValue>
-              </div>
-            </div>
-          );
-
-        case 'select':
-          return (
-            <div key={field.id}>
-              <FieldLabel>
-                {field.label}
-                {field.required && ' *'}
-              </FieldLabel>
-              {field.description && (
-                <FieldDescription>{field.description}</FieldDescription>
-              )}
-              <Select
-                value={formData[field.id] || ''}
-                onChange={(value) => handleFieldChange(field.id, value)}
-                options={[
-                  { value: '', label: 'Выберите...' },
-                  ...(field.options || []).map((opt) => ({
-                    value: opt,
-                    label: opt,
-                  })),
-                ]}
-                placeholder="Выберите значение"
-              />
-            </div>
-          );
-
-        case 'text':
-          return (
-            <div key={field.id}>
-              <Input
-                label={field.label + (field.required ? ' *' : '')}
-                value={formData[field.id] || ''}
-                onChange={(e) => handleFieldChange(field.id, e.target.value)}
-                placeholder={field.description}
-                required={field.required}
-              />
-            </div>
-          );
-
-        case 'photo':
-          return (
-            <div key={field.id}>
-              <FieldLabel>
-                {field.label}
-                {field.required && ' *'}
-              </FieldLabel>
-              {field.description && (
-                <FieldDescription>{field.description}</FieldDescription>
-              )}
-              <Input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    // В будущем можно добавить загрузку на сервер
-                    handleFieldChange(field.id, file.name);
-                  }
-                }}
-              />
-            </div>
-          );
-
-        default:
-          return null;
-      }
-    });
-  };
+  // Динамические поля схем больше не используются - обработка через Gigachat
 
   // Валидация и отправка формы
   const handleSubmit = async (e: React.FormEvent) => {
@@ -487,25 +333,19 @@ export const CreatePlaceForm: React.FC<CreatePlaceFormProps> = ({
       return;
     }
 
-    // Валидация обязательных полей формы
-    if (formSchema) {
-      const requiredFields = formSchema.schema_json.fields.filter((f) => f.required === true);
-      for (const field of requiredFields) {
-        const value = formData[field.id];
-        if (value === undefined || value === null || value === '' || 
-            (field.type === 'boolean' && value === false && field.required)) {
-          setError(`Заполните обязательное поле: ${field.label}`);
-          return;
-        }
-      }
-    }
+    // Валидация схем форм больше не требуется - обработка через Gigachat
 
     try {
+      // Округляем координаты до 6 знаков после запятой (соответствует max_digits=9, decimal_places=6)
+      // Мы уже проверили, что latitude и longitude не null выше, поэтому используем non-null assertion
+      const roundedLatitude = parseFloat(latitude!.toFixed(6));
+      const roundedLongitude = parseFloat(longitude!.toFixed(6));
+      
       await onSubmit({
         name: name.trim(),
         address: address.trim(),
-        latitude,
-        longitude,
+        latitude: roundedLatitude,
+        longitude: roundedLongitude,
         category_uuid: selectedCategory,
         form_data: formData,
         description: description.trim() || undefined,
@@ -581,8 +421,11 @@ export const CreatePlaceForm: React.FC<CreatePlaceFormProps> = ({
                     }}
                     onDragEnd={(e: any) => {
                       const coords = e.get('target').geometry.getCoordinates();
-                      setLatitude(coords[0]);
-                      setLongitude(coords[1]);
+                      // Округляем координаты до 6 знаков после запятой
+                      const roundedLat = parseFloat(coords[0].toFixed(6));
+                      const roundedLon = parseFloat(coords[1].toFixed(6));
+                      setLatitude(roundedLat);
+                      setLongitude(roundedLon);
                     }}
                   />
                 )}
@@ -632,20 +475,7 @@ export const CreatePlaceForm: React.FC<CreatePlaceFormProps> = ({
           />
         </div>
 
-        {/* Динамические поля формы */}
-        {loadingSchema && <LoadingText>Загрузка формы...</LoadingText>}
-        {formSchema && (
-          <DynamicFieldsContainer>
-            <h3 style={{ 
-              fontSize: theme.typography.fontSize.lg,
-              marginBottom: theme.spacing.md,
-              color: theme.colors.text.primary
-            }}>
-              Заполните данные
-            </h3>
-            {renderFormFields()}
-          </DynamicFieldsContainer>
-        )}
+        {/* Динамические поля схем больше не используются - обработка через Gigachat */}
 
         {/* Описание */}
         <div>
@@ -667,7 +497,7 @@ export const CreatePlaceForm: React.FC<CreatePlaceFormProps> = ({
             type="submit"
             variant="primary"
             fullWidth
-            disabled={loading || loadingSchema}
+            disabled={loading}
           >
             Отправить на модерацию
           </Button>

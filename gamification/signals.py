@@ -58,6 +58,11 @@ def handle_review_created(sender, instance, created, **kwargs):
         # выполняется в ViewSet.perform_create()
         # Здесь можно запустить проверку достижений
         check_achievements.delay(instance.author.id)
+        
+        # Если отзыв связан с POI и одобрен - обновляем LLM рейтинг
+        if instance.poi and instance.moderation_status == 'approved':
+            from maps.tasks_ratings import update_poi_llm_rating
+            update_poi_llm_rating.delay(instance.poi.id)
 
 
 @receiver(post_save, sender=Review)
@@ -70,17 +75,15 @@ def handle_review_moderated(sender, instance, **kwargs):
         instance: Экземпляр Review
         **kwargs: Дополнительные аргументы
     """
-    # TODO: Реализовать обработку модерации
-    # 1. Проверить, изменился ли статус модерации
-    # 2. Если статус изменился на 'approved':
-    #    - Награды уже начислены в ModerationService
-    #    - Запустить проверку достижений
-    # 3. Если статус изменился на 'spam_blocked':
-    #    - Штраф уже применен в ModerationService
-    #    - Проверить необходимость блокировки аккаунта
-    
     # Проверка изменения статуса выполняется через pre_save
-    pass
+    # Если отзыв одобрен и связан с POI - обновляем LLM рейтинг
+    if (hasattr(instance, '_moderation_status_changed') and 
+        instance._moderation_status_changed and 
+        instance.moderation_status == 'approved' and 
+        instance.poi):
+        # Обновляем LLM рейтинг POI асинхронно
+        from maps.tasks_ratings import update_poi_llm_rating
+        update_poi_llm_rating.delay(instance.poi.id)
 
 
 @receiver(pre_save, sender=Review)

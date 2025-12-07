@@ -466,7 +466,11 @@ class OpenSearchService:
             return 0
         
         count = 0
-        pois = POI.objects.filter(is_active=True).select_related('category', 'rating')
+        # Индексируем только активные и одобренные места
+        pois = POI.objects.filter(
+            is_active=True, 
+            moderation_status='approved'
+        ).select_related('category', 'rating')
         
         for poi in pois:
             if self.index_poi(poi):

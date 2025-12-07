@@ -42,7 +42,8 @@ export interface Review {
   updated_at: string;
   // ⬇️ НОВЫЕ ПОЛЯ
   rating?: number | null;              // Оценка отзыва (1-5)
-  poi?: string | null;                 // UUID POI (если есть связь)
+  poi?: string | null;                 // ID POI (если есть связь)
+  poi_uuid?: string | null;            // UUID POI (если есть связь) - для удобства
   sentiment_score?: number | null;     // Сентимент от LLM (-1 до 1)
   extracted_facts?: Record<string, any>; // Извлеченные факты от LLM
 }
@@ -173,11 +174,16 @@ export const gamificationApi = {
     category: string;
     content: string;
     has_media: boolean;
-    // ⬇️ НОВЫЕ ОПЦИОНАЛЬНЫЕ ПОЛЯ
-    rating?: number;        // Оценка 1-5 (для poi_review)
-    poi?: string;          // UUID POI (если известен)
+    poi?: string;          // UUID POI (если известен) - будет преобразован в poi_uuid
+    poi_uuid?: string;    // UUID POI (альтернативное поле)
   }): Promise<Review> => {
-    const response = await apiClient.post('/gamification/reviews/', reviewData);
+    // Преобразуем poi в poi_uuid если передан
+    const data = { ...reviewData };
+    if (data.poi && !data.poi_uuid) {
+      data.poi_uuid = data.poi;
+      delete data.poi;
+    }
+    const response = await apiClient.post('/gamification/reviews/', data);
     return response.data;
   },
 

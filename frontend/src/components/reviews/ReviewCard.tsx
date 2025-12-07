@@ -200,7 +200,7 @@ export const ReviewCard: React.FC<ReviewCardProps> = ({ review, onClick }) => {
           {review.has_media && (
             <MediaBadge>
               <span>📷</span>
-              <span>С медиа</span>
+              <span>С фото</span>
             </MediaBadge>
           )}
         </ReviewMeta>

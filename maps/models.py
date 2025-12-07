@@ -475,6 +475,27 @@ class POI(models.Model):
     #   }
     # }
     
+    # LLM рейтинг на основе анализа всех отзывов (второй рейтинг)
+    llm_rating = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0.0), MaxValueValidator(5.0)],
+        verbose_name='LLM рейтинг (0-5)'
+    )
+    
+    # Краткий отчет заведения, сформированный LLM на основе всех отзывов
+    llm_report = models.TextField(
+        blank=True,
+        verbose_name='LLM отчет'
+    )
+    
+    # Дата последнего анализа отзывов через LLM
+    llm_analyzed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Дата последнего LLM анализа'
+    )
+    
     # Активен ли объект
     is_active = models.BooleanField(
         default=True,

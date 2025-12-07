@@ -4,11 +4,11 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { motion } from 'framer-motion';
 import { Container } from '../components/common/Container';
 import { MySubmissionsList } from '../components/places/MySubmissionsList';
+import { SubmissionDetailsModal } from '../components/places/SubmissionDetailsModal';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
 import { getMySubmissions, PlaceSubmission } from '../api/places';
@@ -93,10 +93,10 @@ const StatLabel = styled.div`
 `;
 
 export const MySubmissionsPage: React.FC = () => {
-  const navigate = useNavigate();
   const [submissions, setSubmissions] = useState<PlaceSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSubmissionUuid, setSelectedSubmissionUuid] = useState<string | null>(null);
 
   useEffect(() => {
     const loadSubmissions = async () => {
@@ -121,7 +121,11 @@ export const MySubmissionsPage: React.FC = () => {
   }, []);
 
   const handleSubmissionClick = (submission: PlaceSubmission) => {
-    navigate(`/places/submissions/${submission.uuid}`);
+    setSelectedSubmissionUuid(submission.uuid);
+  };
+
+  const handleCloseModal = () => {
+    setSelectedSubmissionUuid(null);
   };
 
   // Подсчет статистики
@@ -199,6 +203,11 @@ export const MySubmissionsPage: React.FC = () => {
             onSubmissionClick={handleSubmissionClick}
           />
         )}
+
+        <SubmissionDetailsModal
+          submissionUuid={selectedSubmissionUuid}
+          onClose={handleCloseModal}
+        />
       </Container>
     </PageWrapper>
   );

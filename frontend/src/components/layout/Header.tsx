@@ -18,19 +18,31 @@ const HeaderWrapper = styled(motion.header)`
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid ${({ theme }) => theme.colors.border.main};
   padding: ${({ theme }) => theme.spacing.md} 0;
+  width: 100%;
+  overflow-x: hidden;
 `;
 
 const HeaderContent = styled(Container)`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: ${({ theme }) => theme.spacing.lg};
+  gap: ${({ theme }) => theme.spacing.md};
+  min-width: 0;
+  flex-wrap: nowrap;
+  
+  @media (max-width: 1200px) {
+    gap: ${({ theme }) => theme.spacing.sm};
+  }
+  
+  @media (max-width: 768px) {
+    flex-wrap: wrap;
+  }
 `;
 
 const Logo = styled(Link)`
   display: flex;
   align-items: center;
-  gap: ${({ theme }) => theme.spacing.md};
+  gap: ${({ theme }) => theme.spacing.sm};
   font-family: ${({ theme }) => theme.typography.fontFamily.heading};
   font-size: ${({ theme }) => theme.typography.fontSize['2xl']};
   font-weight: ${({ theme }) => theme.typography.fontWeight.bold};
@@ -40,6 +52,24 @@ const Logo = styled(Link)`
   background-clip: text;
   text-decoration: none;
   transition: all 0.3s ease;
+  flex-shrink: 0;
+  min-width: 0;
+  white-space: nowrap;
+
+  @media (max-width: 1200px) {
+    font-size: ${({ theme }) => theme.typography.fontSize.xl};
+    gap: ${({ theme }) => theme.spacing.xs};
+  }
+  
+  @media (max-width: 768px) {
+    font-size: ${({ theme }) => theme.typography.fontSize.lg};
+  }
+  
+  @media (max-width: 480px) {
+    span {
+      display: none;
+    }
+  }
 
   &:hover {
     transform: scale(1.05);
@@ -56,15 +86,42 @@ const LogoIcon = styled.div`
   justify-content: center;
   font-size: ${({ theme }) => theme.typography.fontSize.xl};
   box-shadow: ${({ theme }) => theme.shadows.glow};
+  flex-shrink: 0;
+  
+  @media (max-width: 1200px) {
+    width: 32px;
+    height: 32px;
+    font-size: ${({ theme }) => theme.typography.fontSize.lg};
+  }
+  
+  @media (max-width: 768px) {
+    width: 28px;
+    height: 28px;
+  }
 `;
 
 const Nav = styled.nav`
   display: flex;
   align-items: center;
-  gap: ${({ theme }) => theme.spacing.md};
+  gap: ${({ theme }) => theme.spacing.sm};
   flex: 1;
   justify-content: center;
-
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  
+  @media (max-width: 1200px) {
+    gap: ${({ theme }) => theme.spacing.xs};
+    justify-content: flex-start;
+    padding: 0 ${({ theme }) => theme.spacing.xs};
+  }
+  
   @media (max-width: 768px) {
     display: none;
   }
@@ -82,6 +139,14 @@ const NavLink = styled(Link).withConfig({
   border-radius: ${({ theme }) => theme.borderRadius.md};
   transition: all 0.2s ease;
   position: relative;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: ${({ theme }) => theme.typography.fontSize.sm};
+
+  @media (max-width: 1200px) {
+    padding: ${({ theme }) => theme.spacing.xs} ${({ theme }) => theme.spacing.sm};
+    font-size: ${({ theme }) => theme.typography.fontSize.xs};
+  }
 
   &:hover {
     color: ${({ theme }) => theme.colors.primary.main};
@@ -108,13 +173,34 @@ const NavLink = styled(Link).withConfig({
 const UserSection = styled.div`
   display: flex;
   align-items: center;
-  gap: ${({ theme }) => theme.spacing.md};
+  gap: ${({ theme }) => theme.spacing.sm};
+  flex-shrink: 0;
+  min-width: 0;
+  
+  @media (max-width: 1200px) {
+    gap: ${({ theme }) => theme.spacing.xs};
+  }
+  
+  @media (max-width: 480px) {
+    gap: ${({ theme }) => theme.spacing.xs};
+    
+    button {
+      padding: ${({ theme }) => theme.spacing.xs} ${({ theme }) => theme.spacing.sm};
+      font-size: ${({ theme }) => theme.typography.fontSize.xs};
+    }
+  }
 `;
 
 const UserInfo = styled.div`
   display: flex;
   align-items: center;
-  gap: ${({ theme }) => theme.spacing.md};
+  gap: ${({ theme }) => theme.spacing.sm};
+  flex-wrap: nowrap;
+  min-width: 0;
+  
+  @media (max-width: 1200px) {
+    gap: ${({ theme }) => theme.spacing.xs};
+  }
 `;
 
 const Username = styled.span`
@@ -192,19 +278,27 @@ export const Header: React.FC = () => {
               <NavLink to="/places/create" active={isActive('/places/create')}>
                 Создать место
               </NavLink>
-              <NavLink to="/places/my-submissions" active={isActive('/places/my-submissions')}>
-                Мои заявки
-              </NavLink>
-              <NavLink to="/rewards" active={isActive('/rewards')}>
-                Награды
-              </NavLink>
-              <NavLink to="/achievements" active={isActive('/achievements')}>
-                Достижения
-              </NavLink>
+              {/* Скрываем эти вкладки для модераторов */}
+              {!isAdmin && (
+                <>
+                  <NavLink to="/places/my-submissions" active={isActive('/places/my-submissions')}>
+                    Мои заявки
+                  </NavLink>
+                  <NavLink to="/rewards" active={isActive('/rewards')}>
+                    Награды
+                  </NavLink>
+                  <NavLink to="/achievements" active={isActive('/achievements')}>
+                    Достижения
+                  </NavLink>
+                </>
+              )}
               {isAdmin && (
                 <>
+                  <NavLink to="/places/moderation" active={isActive('/places/moderation')}>
+                    Модерация мест
+                  </NavLink>
                   <NavLink to="/moderation" active={isActive('/moderation')}>
-                    Модерация
+                    Модерация отзывов
                   </NavLink>
                   <NavLink to="/places/bulk-upload" active={isActive('/places/bulk-upload')}>
                     Массовая загрузка

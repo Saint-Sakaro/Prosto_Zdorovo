@@ -214,10 +214,14 @@ export const PlaceModerationPage: React.FC = () => {
         setLoading(true);
         setError(null);
         const data = await getPendingSubmissions();
-        setSubmissions(data);
+        // Фильтруем только pending заявки (на случай, если API вернет что-то лишнее)
+        const pendingOnly = data.filter((s) => s.moderation_status === 'pending');
+        setSubmissions(pendingOnly);
         // Автоматически выбираем первую заявку, если есть
-        if (data.length > 0 && !selectedSubmission) {
-          setSelectedSubmission(data[0]);
+        if (pendingOnly.length > 0 && !selectedSubmission) {
+          setSelectedSubmission(pendingOnly[0]);
+        } else if (pendingOnly.length === 0) {
+          setSelectedSubmission(null);
         }
       } catch (err: any) {
         console.error('Ошибка загрузки заявок:', err);
@@ -234,30 +238,48 @@ export const PlaceModerationPage: React.FC = () => {
     if (isAdmin === true) {
       loadSubmissions();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
   const handleModerate = async (
     action: 'approve' | 'reject' | 'request_changes',
     comment: string
   ) => {
-    if (!selectedSubmission) return;
+    if (!selectedSubmission) {
+      console.warn('Нет выбранной заявки для модерации');
+      return;
+    }
 
     try {
       setModerating(true);
+      setError(null);
+      console.log('Модерация заявки:', { uuid: selectedSubmission.uuid, action, comment });
+      
       await moderateSubmission(selectedSubmission.uuid, action, comment);
       
-      // Удаляем заявку из списка
-      setSubmissions((prev) => prev.filter((s) => s.uuid !== selectedSubmission.uuid));
+      // Обновляем список заявок - перезагружаем с сервера
+      const updatedData = await getPendingSubmissions();
+      // Фильтруем только pending заявки
+      const pendingOnly = updatedData.filter((s) => s.moderation_status === 'pending');
+      setSubmissions(pendingOnly);
       
       // Выбираем следующую заявку или очищаем выбор
-      const remaining = submissions.filter((s) => s.uuid !== selectedSubmission.uuid);
+      const remaining = pendingOnly.filter((s) => s.uuid !== selectedSubmission.uuid);
       if (remaining.length > 0) {
         setSelectedSubmission(remaining[0]);
       } else {
         setSelectedSubmission(null);
       }
+      
+      console.log('Модерация успешно применена, обновлен список заявок');
     } catch (err: any) {
       console.error('Ошибка модерации:', err);
+      const errorMessage = err.response?.data?.error ||
+        err.response?.data?.message ||
+        'Не удалось применить решение';
+      setError(errorMessage);
+      // Показываем ошибку пользователю
+      alert(`Ошибка: ${errorMessage}`);
       throw err;
     } finally {
       setModerating(false);
@@ -380,6 +402,31 @@ export const PlaceModerationPage: React.FC = () => {
                             minute: '2-digit',
                           })}
                         </SubmissionDate>
+                        <div
+                          style={{
+                            marginTop: theme.spacing.xs,
+                            fontSize: theme.typography.fontSize.xs,
+                            padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
+                            borderRadius: theme.borderRadius.md,
+                            display: 'inline-block',
+                            background: submission.moderation_status === 'pending'
+                              ? `${theme.colors.accent.warning}20`
+                              : submission.moderation_status === 'approved'
+                              ? `${theme.colors.accent.success}20`
+                              : `${theme.colors.accent.error}20`,
+                            color: submission.moderation_status === 'pending'
+                              ? theme.colors.accent.warning
+                              : submission.moderation_status === 'approved'
+                              ? theme.colors.accent.success
+                              : theme.colors.accent.error,
+                            fontWeight: theme.typography.fontWeight.semibold,
+                          }}
+                        >
+                          {submission.moderation_status === 'pending' && '⏳ На модерации'}
+                          {submission.moderation_status === 'approved' && '✅ Одобрено'}
+                          {submission.moderation_status === 'rejected' && '❌ Отклонено'}
+                          {submission.moderation_status === 'changes_requested' && '⚠️ Требуются изменения'}
+                        </div>
                         {submission.llm_verdict && (
                           <div
                             style={{

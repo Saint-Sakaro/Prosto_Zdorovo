@@ -18,7 +18,6 @@ import { Rewards } from './pages/Rewards';
 import { Achievements } from './pages/Achievements';
 import { Moderation } from './pages/Moderation';
 import { Map } from './pages/Map';
-import { AdminSchemas } from './pages/AdminSchemas';
 import { CreatePlacePage } from './pages/CreatePlace';
 import { MySubmissionsPage } from './pages/MySubmissions';
 import { PlaceModerationPage } from './pages/PlaceModeration';
@@ -83,14 +82,6 @@ function App() {
                 element={
                   <AdminRoute>
                     <Moderation />
-                  </AdminRoute>
-                }
-              />
-              <Route
-                path="/admin/schemas"
-                element={
-                  <AdminRoute>
-                    <AdminSchemas />
                   </AdminRoute>
                 }
               />

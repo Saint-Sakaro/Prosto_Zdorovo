@@ -22,6 +22,8 @@ class POIFilterService:
         """
         Получить POI с применением фильтров
         
+        Показывает только активные и одобренные места (прошедшие модерацию).
+        
         Args:
             category_uuids: Список UUID категорий для фильтрации (None = все)
             bbox: Bounding box для ограничения области (опционально)
@@ -30,7 +32,8 @@ class POIFilterService:
         Returns:
             QuerySet: Отфильтрованные POI
         """
-        pois = POI.objects.filter(is_active=True)
+        # Показываем только активные и одобренные места
+        pois = POI.objects.filter(is_active=True, moderation_status='approved')
         
         # Фильтр по категориям
         if category_uuids:

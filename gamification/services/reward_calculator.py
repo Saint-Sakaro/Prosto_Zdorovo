@@ -66,6 +66,10 @@ class RewardCalculator:
             points = self.points_for_duplicate
             reputation = 0  # Дубликаты не дают репутацию
             monthly_reputation = 0
+            
+            # Бонус за медиа даже для дубликатов (но меньше)
+            if has_media:
+                points = int(points * 1.5)  # +50% за фото даже для дубликатов
         
         return {
             'points': int(points),
@@ -103,7 +107,9 @@ class RewardCalculator:
     
     def apply_media_bonus(self, base_points, base_reputation):
         """
-        Применяет бонус за наличие медиа-доказательств
+        Применяет бонус за наличие медиа-доказательств (фото)
+        
+        За фото пользователь получает значительно больше баллов!
         
         Args:
             base_points: Базовые баллы
@@ -115,8 +121,9 @@ class RewardCalculator:
                 'reputation': int,  # Репутация с бонусом
             }
         """
-        # Бонус 50% за медиа-доказательства
-        media_bonus_multiplier = 1.5
+        # Бонус 100% за медиа-доказательства (фото) - удваиваем награду!
+        # Это мотивирует пользователей прикреплять фото
+        media_bonus_multiplier = 2.0
         
         points_with_bonus = base_points * media_bonus_multiplier
         reputation_with_bonus = base_reputation * media_bonus_multiplier

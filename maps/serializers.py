@@ -57,27 +57,84 @@ class POISerializer(serializers.ModelSerializer):
     - Отображения объектов на карте
     - Детальной информации об объекте
     - Создания/обновления POI (для админов)
+    - Представления заявок на создание мест
     """
     category = POICategorySerializer(read_only=True)
-    category_uuid = serializers.PrimaryKeyRelatedField(
+    category_uuid = serializers.SerializerMethodField()
+    category_uuid_write = serializers.UUIDField(
         source='category',
-        queryset=POICategory.objects.filter(is_active=True),
         write_only=True,
-        required=True
+        required=False,
+        allow_null=True
     )
     rating = POIRatingSerializer(read_only=True)
+    
+    # Поля для заявок на создание мест
+    submitted_by = serializers.SerializerMethodField()
+    moderated_by = serializers.SerializerMethodField()
+    llm_verdict = serializers.SerializerMethodField()
     
     class Meta:
         model = POI
         fields = [
-            'uuid', 'name', 'category', 'category_uuid',
+            'uuid', 'name', 'category', 'category_uuid', 'category_uuid_write',
             'address', 'latitude', 'longitude',
             'description', 'phone', 'website', 'email',
             'working_hours', 'rating', 'is_active',
             'form_data', 'verified', 'verified_by', 'verified_at',
+            'moderation_status', 'submitted_by',
+            'moderated_by', 'moderated_at', 'moderation_comment',
+            'llm_verdict', 'llm_rating', 'llm_report', 'llm_analyzed_at',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['uuid', 'created_at', 'updated_at', 'is_geocoded', 'geocoded_at']
+        read_only_fields = [
+            'uuid', 'created_at', 'updated_at', 'is_geocoded', 'geocoded_at',
+            'moderation_status', 'submitted_by', 'moderated_by', 'moderated_at',
+            'moderation_comment', 'llm_verdict'
+        ]
+    
+    def get_category_uuid(self, obj):
+        """Получить UUID категории"""
+        return str(obj.category.uuid) if obj.category else None
+    
+    def get_submitted_by(self, obj):
+        """Получить информацию о пользователе, создавшем заявку"""
+        if not obj.submitted_by:
+            return None
+        return {
+            'id': obj.submitted_by.id,
+            'username': obj.submitted_by.username,
+            'email': obj.submitted_by.email,
+        }
+    
+    def get_moderated_by(self, obj):
+        """Получить информацию о модераторе, если заявка была промодерирована"""
+        if not obj.moderated_by:
+            return None
+        return {
+            'id': obj.moderated_by.id,
+            'username': obj.moderated_by.username,
+        }
+    
+    def get_llm_verdict(self, obj):
+        """Получить вердикт LLM, если есть"""
+        if obj.llm_verdict:
+            return obj.llm_verdict
+        return None
+    
+    def to_internal_value(self, data):
+        """Обработка category_uuid при создании/обновлении"""
+        # Обрабатываем category_uuid для записи
+        category_uuid = data.get('category_uuid')
+        if category_uuid:
+            from maps.models import POICategory
+            try:
+                category = POICategory.objects.get(uuid=category_uuid, is_active=True)
+                data['category_uuid_write'] = category.uuid
+                data['category'] = category.pk
+            except POICategory.DoesNotExist:
+                pass
+        return super().to_internal_value(data)
 
 
 class POIListSerializer(serializers.ModelSerializer):
@@ -253,15 +310,15 @@ class POISubmissionSerializer(serializers.Serializer):
     Serializer для создания заявки на место
     
     Используется для ручного создания места пользователем.
-    Теперь пользователь указывает только категорию и описание.
-    S_infra рассчитывается автоматически через Gigachat на основе описания.
+    Поддерживает заполнение динамических полей формы на основе категории.
     """
     name = serializers.CharField(max_length=500, required=True)
     address = serializers.CharField(max_length=500, required=True)
     latitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=True)
     longitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=True)
     category_uuid = serializers.UUIDField(required=True)
-    description = serializers.CharField(required=True, min_length=10, max_length=2000)
+    description = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    form_data = serializers.JSONField(required=False, default=dict)
     
     def validate_category_uuid(self, value):
         """
@@ -276,9 +333,20 @@ class POISubmissionSerializer(serializers.Serializer):
         Raises:
             serializers.ValidationError: Если категория не найдена
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🟡 validate_category_uuid() - значение: {value} (тип: {type(value)})")
+        
         try:
+            logger.info(f"🟡 Ищем категорию в БД...")
             category = POICategory.objects.get(uuid=value, is_active=True)
+            logger.info(f"✅ Категория найдена: {category.name} (UUID: {category.uuid})")
+            return value
         except POICategory.DoesNotExist:
+            logger.error(f"❌ Категория не найдена: {value}")
+            logger.error(f"❌ Доступные категории:")
+            for cat in POICategory.objects.filter(is_active=True):
+                logger.error(f"   - {cat.name}: {cat.uuid}")
             raise serializers.ValidationError(f'Категория с UUID "{value}" не найдена или неактивна')
         return value
     
@@ -290,22 +358,47 @@ class POISubmissionSerializer(serializers.Serializer):
             value: Описание места
             
         Returns:
-            str: Описание места
-            
-        Raises:
-            serializers.ValidationError: Если описание слишком короткое
+            str: Описание места или пустая строка
         """
-        if not value or len(value.strip()) < 10:
-            raise serializers.ValidationError('Описание должно содержать минимум 10 символов')
+        if value:
+            value = value.strip()
+            if len(value) > 2000:
+                raise serializers.ValidationError('Описание не должно превышать 2000 символов')
+        return value or ''
+    
+    def validate_form_data(self, value):
+        """
+        Валидировать данные формы
         
-        if len(value) > 2000:
-            raise serializers.ValidationError('Описание не должно превышать 2000 символов')
+        Args:
+            value: Данные формы (dict)
+            
+        Returns:
+            dict: Валидированные данные формы
+        """
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('form_data должен быть объектом (dict)')
+        return value
+    
+    def validate(self, attrs):
+        """
+        Дополнительная валидация на уровне всех полей
         
-        return value.strip()
+        Args:
+            attrs: Все валидированные данные
+            
+        Returns:
+            dict: Валидированные данные
+        """
+        # Если описание не указано, но есть form_data, это нормально
+        # Если нет ни того, ни другого - это тоже нормально (модератор добавит)
+        return attrs
     
     def create(self, validated_data):
         """
-        Создать POI со статусом pending и рассчитать S_infra через Gigachat
+        Создать POI со статусом pending
         
         Args:
             validated_data: Валидированные данные
@@ -313,46 +406,162 @@ class POISubmissionSerializer(serializers.Serializer):
         Returns:
             POI: Созданный объект
         """
-        from maps.services.infrastructure_score_calculator import InfrastructureScoreCalculator
+        import logging
+        logger = logging.getLogger(__name__)
         
-        # Получаем категорию
-        category_uuid = validated_data.pop('category_uuid')
-        category = POICategory.objects.get(uuid=category_uuid, is_active=True)
+        logger.info("=" * 80)
+        logger.info("🟢 POISubmissionSerializer.create() - НАЧАЛО")
+        logger.info(f"🟢 Валидированные данные: {validated_data}")
+        logger.info(f"🟢 Тип данных: {type(validated_data)}")
+        logger.info(f"🟢 Ключи: {list(validated_data.keys())}")
         
-        # Получаем пользователя из контекста
-        user = self.context['request'].user
-        
-        # Извлекаем описание
-        description = validated_data.pop('description')
-        
-        # Создаем POI со статусом pending
-        poi = POI.objects.create(
-            category=category,
-            description=description,
-            submitted_by=user,
-            moderation_status='pending',
-            is_active=False,  # Неактивен до модерации
-            **validated_data
-        )
-        
-        # Рассчитываем начальный S_infra через Gigachat (для предпросмотра)
-        infra_calculator = InfrastructureScoreCalculator()
         try:
-            s_infra_result = infra_calculator.calculate_infra_score(poi)
+            # Получаем категорию
+            logger.info("🟢 Получаем category_uuid...")
+            category_uuid = validated_data.pop('category_uuid')
+            logger.info(f"🟢 category_uuid: {category_uuid} (тип: {type(category_uuid)})")
             
-            # Сохраняем предварительный расчет в метаданные
-            poi.metadata = poi.metadata or {}
-            poi.metadata['preliminary_s_infra'] = s_infra_result
-            poi.metadata['s_infra_calculation'] = {
-                'calculated_by': 'gigachat',
-                'at_creation': True
-            }
-            poi.save(update_fields=['metadata'])
+            try:
+                logger.info(f"🟢 Ищем категорию в БД...")
+                category = POICategory.objects.get(uuid=category_uuid, is_active=True)
+                logger.info(f"✅ Категория найдена: {category.name} (UUID: {category.uuid})")
+            except POICategory.DoesNotExist:
+                logger.error(f"❌ Категория не найдена: {category_uuid}")
+                logger.error(f"❌ Доступные категории:")
+                for cat in POICategory.objects.filter(is_active=True):
+                    logger.error(f"   - {cat.name}: {cat.uuid}")
+                raise serializers.ValidationError(f'Категория с UUID "{category_uuid}" не найдена или неактивна')
+            except Exception as cat_error:
+                logger.error(f"❌ Ошибка при поиске категории: {type(cat_error)} - {str(cat_error)}")
+                import traceback
+                logger.error(f"❌ Traceback:\n{traceback.format_exc()}")
+                raise
+            
+            # Получаем пользователя из контекста
+            logger.info("🟢 Проверяем контекст request...")
+            logger.info(f"🟢 Контекст: {self.context}")
+            logger.info(f"🟢 Ключи контекста: {list(self.context.keys())}")
+            
+            if 'request' not in self.context:
+                logger.error('❌ Контекст request не передан в сериализатор')
+                logger.error(f"❌ Доступные ключи контекста: {list(self.context.keys())}")
+                raise serializers.ValidationError('Ошибка конфигурации: требуется авторизация')
+            
+            logger.info("🟢 Получаем пользователя из контекста...")
+            user = self.context['request'].user
+            logger.info(f"🟢 Пользователь: {user}")
+            logger.info(f"🟢 Авторизован: {user.is_authenticated if user else False}")
+            logger.info(f"🟢 ID пользователя: {user.id if user else None}")
+            logger.info(f"🟢 Username: {user.username if user else None}")
+            
+            if not user or not user.is_authenticated:
+                logger.error('❌ Пользователь не авторизован')
+                raise serializers.ValidationError('Требуется авторизация')
+            
+            logger.info(f"✅ Пользователь авторизован: {user.username} (ID: {user.id})")
+            
+            # Извлекаем описание и form_data
+            logger.info("🟢 Извлекаем описание и form_data...")
+            description = validated_data.pop('description', '') or ''
+            form_data = validated_data.pop('form_data', {}) or {}
+            logger.info(f"🟢 Описание: '{description}' (длина: {len(description)})")
+            logger.info(f"🟢 Form data: {form_data} (тип: {type(form_data)})")
+            
+            # Получаем схему формы категории, если есть
+            logger.info("🟢 Получаем схему формы категории...")
+            form_schema = None
+            try:
+                form_schema = category.form_schema
+                logger.info(f"✅ Схема формы найдена: {form_schema.uuid}")
+            except FormSchema.DoesNotExist:
+                logger.info("ℹ️ Схема формы не найдена (это нормально)")
+                pass
+            except Exception as schema_error:
+                logger.warning(f"⚠️ Ошибка при получении схемы: {type(schema_error)} - {str(schema_error)}")
+            
+            # Модераторские заявки создаются как pending, чтобы попасть в модерацию
+            # Затем они будут автоматически подтверждены через API модерации
+            is_moderator = user.is_staff or user.is_superuser
+            moderation_status = 'pending'  # Все заявки создаются как pending
+            is_active = False  # Неактивны до модерации
+            
+            # Создаем POI
+            logger.info("🟢 Создаем POI объект...")
+            logger.info(f"🟢 Оставшиеся validated_data: {validated_data}")
+            logger.info(f"🟢 Параметры для создания:")
+            logger.info(f"   - category: {category.name} ({category.uuid})")
+            logger.info(f"   - description: '{description}'")
+            logger.info(f"   - form_data: {form_data}")
+            logger.info(f"   - form_schema: {form_schema}")
+            logger.info(f"   - submitted_by: {user.username} ({user.id})")
+            logger.info(f"   - is_moderator: {is_moderator}")
+            logger.info(f"   - moderation_status: {moderation_status}")
+            logger.info(f"   - is_active: {is_active}")
+            logger.info(f"   - validated_data: {validated_data}")
+            
+            try:
+                poi = POI.objects.create(
+                    category=category,
+                    description=description,
+                    form_data=form_data,
+                    form_schema=form_schema,
+                    submitted_by=user,
+                    moderation_status=moderation_status,
+                    is_active=is_active,
+                    **validated_data
+                )
+                
+                # Модераторские заявки создаются как pending, чтобы попасть в модерацию
+                # Автоматическое подтверждение будет выполнено через API модерации
+                logger.info(f"✅ POI создан со статусом: {poi.moderation_status}")
+                if is_moderator:
+                    logger.info(f"ℹ️ Заявка модератора создана, будет автоматически подтверждена")
+                logger.info(f"✅ POI создан успешно!")
+                logger.info(f"✅ UUID: {poi.uuid}")
+                logger.info(f"✅ Название: {poi.name}")
+                logger.info(f"✅ Адрес: {poi.address}")
+                logger.info(f"✅ Координаты: {poi.latitude}, {poi.longitude}")
+                logger.info(f"✅ Категория: {poi.category.name}")
+                logger.info(f"✅ Статус: {poi.moderation_status}")
+                logger.info(f"✅ Активен: {poi.is_active}")
+                logger.info(f"✅ Создал: {poi.submitted_by.username}")
+                logger.info("=" * 80)
+                logger.info("✅ POISubmissionSerializer.create() - УСПЕХ")
+                logger.info("=" * 80)
+                
+                return poi
+            except Exception as create_error:
+                logger.error("=" * 80)
+                logger.error("❌ ОШИБКА ПРИ СОЗДАНИИ POI")
+                logger.error(f"❌ Тип ошибки: {type(create_error)}")
+                logger.error(f"❌ Сообщение: {str(create_error)}")
+                logger.error(f"❌ Аргументы: {create_error.args}")
+                import traceback
+                logger.error(f"❌ Traceback:\n{traceback.format_exc()}")
+                logger.error(f"❌ Данные для создания:")
+                logger.error(f"   - category: {category}")
+                logger.error(f"   - description: {description}")
+                logger.error(f"   - form_data: {form_data}")
+                logger.error(f"   - form_schema: {form_schema}")
+                logger.error(f"   - submitted_by: {user}")
+                logger.error(f"   - validated_data: {validated_data}")
+                logger.error("=" * 80)
+                raise
+            
+        except serializers.ValidationError as ve:
+            logger.error("=" * 80)
+            logger.error("❌ ОШИБКА ВАЛИДАЦИИ (Serializer)")
+            logger.error(f"❌ Detail: {ve.detail}")
+            logger.error("=" * 80)
+            raise
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f'Ошибка при расчете S_infra через Gigachat для POI {poi.uuid}: {str(e)}')
-            # Продолжаем, даже если расчет не удался - это не критично на этапе создания
-        
-        return poi
+            logger.error("=" * 80)
+            logger.error("❌ НЕОЖИДАННАЯ ОШИБКА В create()")
+            logger.error(f"❌ Тип ошибки: {type(e)}")
+            logger.error(f"❌ Сообщение: {str(e)}")
+            logger.error(f"❌ Аргументы: {e.args}")
+            import traceback
+            logger.error(f"❌ Traceback:\n{traceback.format_exc()}")
+            logger.error("=" * 80)
+            raise serializers.ValidationError(f'Ошибка при создании заявки: {str(e)}')
 

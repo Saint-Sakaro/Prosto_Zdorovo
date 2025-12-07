@@ -4,7 +4,6 @@
  */
 
 import React from 'react';
-import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import { motion } from 'framer-motion';
 import { Card } from '../common/Card';
@@ -302,7 +301,7 @@ export const MySubmissionsList: React.FC<MySubmissionsListProps> = ({
                 <Button
                   variant="outline"
                   size="sm"
-                  to={`/places/submissions/${submission.uuid}`}
+                  onClick={() => onSubmissionClick?.(submission)}
                 >
                   Детали
                 </Button>

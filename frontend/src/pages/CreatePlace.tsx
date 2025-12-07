@@ -3,13 +3,15 @@
  * Этап 1: Ручное создание места пользователем
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { motion } from 'framer-motion';
 import { Container } from '../components/common/Container';
 import { CreatePlaceForm } from '../components/places/CreatePlaceForm';
 import { createPlaceSubmission, PlaceSubmissionData } from '../api/places';
+import { useAuth } from '../context/AuthContext';
+import { authApi } from '../api/auth';
 import { theme } from '../theme';
 
 const PageWrapper = styled(motion.div)`
@@ -53,8 +55,32 @@ const SuccessMessage = styled(motion.div)`
 
 export const CreatePlacePage: React.FC = () => {
   const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
   const [success, setSuccess] = useState(false);
   const [submissionId, setSubmissionId] = useState<string | null>(null);
+  const [isModerator, setIsModerator] = useState(false);
+
+  // Проверка, является ли пользователь модератором
+  useEffect(() => {
+    const checkModeratorStatus = async () => {
+      if (isAuthenticated && user) {
+        try {
+          const userData = await authApi.getCurrentUser();
+          const moderatorStatus =
+            (userData as any).is_staff ||
+            (userData as any).is_superuser ||
+            (userData.user as any)?.is_staff ||
+            (userData.user as any)?.is_superuser ||
+            false;
+          setIsModerator(moderatorStatus);
+        } catch (error) {
+          setIsModerator(false);
+        }
+      }
+    };
+
+    checkModeratorStatus();
+  }, [isAuthenticated, user]);
 
   const handleSubmit = async (data: PlaceSubmissionData) => {
     try {
@@ -62,11 +88,17 @@ export const CreatePlacePage: React.FC = () => {
       setSubmissionId(submission.uuid);
       setSuccess(true);
 
-      // Редирект через 3 секунды
+      // Редирект через 2 секунды
+      // Модераторы перенаправляются в модерацию, обычные пользователи - в свои заявки
       setTimeout(() => {
-        navigate('/places/my-submissions');
-      }, 3000);
-    } catch (error) {
+        if (isModerator) {
+          navigate('/places/moderation');
+        } else {
+          navigate('/places/my-submissions');
+        }
+      }, 2000);
+    } catch (error: any) {
+      // Ошибка будет обработана в CreatePlaceForm компоненте
       throw error;
     }
   };
@@ -90,7 +122,12 @@ export const CreatePlacePage: React.FC = () => {
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
           >
-            ✅ Заявка успешно создана! Вы будете перенаправлены на страницу ваших заявок...
+            ✅ Заявка успешно создана!
+            {isModerator ? (
+              <> Заявка автоматически подтверждена. Вы будете перенаправлены в модерацию...</>
+            ) : (
+              <> Вы будете перенаправлены на страницу ваших заявок...</>
+            )}
           </SuccessMessage>
         )}
 

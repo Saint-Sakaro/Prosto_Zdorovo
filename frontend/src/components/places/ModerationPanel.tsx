@@ -203,6 +203,24 @@ const ButtonsRow = styled.div`
   margin-top: ${({ theme }) => theme.spacing.md};
 `;
 
+const StatusCard = styled(Card).withConfig({
+  shouldForwardProp: (prop) => !['$status'].includes(prop),
+})<{ $status: string }>`
+  background: ${({ $status, theme }) =>
+    $status === 'approved'
+      ? `${theme.colors.accent.success}10`
+      : $status === 'rejected'
+      ? `${theme.colors.accent.error}10`
+      : `${theme.colors.accent.warning}10`};
+  border: 2px solid
+    ${({ $status, theme }) =>
+      $status === 'approved'
+        ? theme.colors.accent.success
+        : $status === 'rejected'
+        ? theme.colors.accent.error
+        : theme.colors.accent.warning};
+`;
+
 const getVerdictLabel = (verdict: string): string => {
   const labels: Record<string, string> = {
     approve: 'Одобрить',
@@ -221,17 +239,31 @@ export const ModerationPanel: React.FC<ModerationPanelProps> = ({
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = async () => {
-    if (!comment.trim() && action !== 'approve') {
-      // Для approve комментарий не обязателен
+  const handleSubmit = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    // Для approve комментарий не обязателен, для остальных - обязателен
+    if (action !== 'approve' && !comment.trim()) {
+      console.warn('Комментарий обязателен для действий reject и request_changes');
       return;
     }
 
+    if (submitting) {
+      console.warn('Уже идет отправка');
+      return;
+    }
+
+    console.log('Отправка решения модерации:', { action, comment: comment.trim() });
     setSubmitting(true);
     try {
-      await onModerate(action, comment.trim());
+      await onModerate(action, comment.trim() || '');
       setComment('');
+      setAction('approve'); // Сбрасываем на approve для следующей заявки
     } catch (error) {
+      console.error('Ошибка при модерации:', error);
       // Ошибка обрабатывается в родительском компоненте
     } finally {
       setSubmitting(false);
@@ -362,61 +394,94 @@ export const ModerationPanel: React.FC<ModerationPanelProps> = ({
         </Section>
       )}
 
-      {/* Форма модерации */}
-      <ModerationForm>
-        <SectionTitle>Решение модератора</SectionTitle>
-        <Select
-          label="Действие"
-          value={action}
-          onChange={(value) => setAction(value as any)}
-          options={[
-            { value: 'approve', label: '✅ Одобрить' },
-            { value: 'reject', label: '❌ Отклонить' },
-            { value: 'request_changes', label: '⚠️ Запросить изменения' },
-          ]}
-          required
-        />
-        <div>
-          <label
-            style={{
-              display: 'block',
-              fontSize: theme.typography.fontSize.sm,
-              fontWeight: theme.typography.fontWeight.medium,
-              color: theme.colors.text.secondary,
-              marginBottom: theme.spacing.xs,
-            }}
-          >
-            Комментарий {action !== 'approve' && '*'}
-          </label>
-          <TextArea
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            placeholder={
-              action === 'approve'
-                ? 'Комментарий (необязательно)'
-                : action === 'reject'
-                ? 'Укажите причину отклонения'
-                : 'Укажите, какие изменения требуются'
-            }
-            required={action !== 'approve'}
+      {/* Статус заявки */}
+      {submission.moderation_status !== 'pending' && (
+        <ModerationForm>
+          <SectionTitle>Статус заявки</SectionTitle>
+          <StatusCard $status={submission.moderation_status} padding={theme.spacing.md}>
+            <InfoRow>
+              <span>
+                <strong>Статус:</strong>{' '}
+                {submission.moderation_status === 'approved' && '✅ Одобрено'}
+                {submission.moderation_status === 'rejected' && '❌ Отклонено'}
+                {submission.moderation_status === 'changes_requested' && '⚠️ Требуются изменения'}
+              </span>
+            </InfoRow>
+            {submission.moderated_by && (
+              <InfoRow>
+                <span>
+                  <strong>Модерировал:</strong> {submission.moderated_by?.username || 'Неизвестно'}
+                </span>
+              </InfoRow>
+            )}
+            {submission.moderation_comment && (
+              <InfoRow>
+                <span>
+                  <strong>Комментарий:</strong> {submission.moderation_comment}
+                </span>
+              </InfoRow>
+            )}
+          </StatusCard>
+        </ModerationForm>
+      )}
+
+      {/* Форма модерации - показываем только для pending заявок */}
+      {submission.moderation_status === 'pending' && (
+        <ModerationForm>
+          <SectionTitle>Решение модератора</SectionTitle>
+          <Select
+            label="Действие"
+            value={action}
+            onChange={(value) => setAction(value as any)}
+            options={[
+              { value: 'approve', label: '✅ Одобрить' },
+              { value: 'reject', label: '❌ Отклонить' },
+              { value: 'request_changes', label: '⚠️ Запросить изменения' },
+            ]}
+            required
           />
-        </div>
-        <ButtonsRow>
-          {onClose && (
-            <Button variant="outline" onClick={onClose} fullWidth>
-              Отмена
+          <div>
+            <label
+              style={{
+                display: 'block',
+                fontSize: theme.typography.fontSize.sm,
+                fontWeight: theme.typography.fontWeight.medium,
+                color: theme.colors.text.secondary,
+                marginBottom: theme.spacing.xs,
+              }}
+            >
+              Комментарий {action !== 'approve' && '*'}
+            </label>
+            <TextArea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder={
+                action === 'approve'
+                  ? 'Комментарий (необязательно)'
+                  : action === 'reject'
+                  ? 'Укажите причину отклонения'
+                  : 'Укажите, какие изменения требуются'
+              }
+              required={action !== 'approve'}
+            />
+          </div>
+          <ButtonsRow>
+            {onClose && (
+              <Button variant="outline" onClick={onClose} fullWidth>
+                Отмена
+              </Button>
+            )}
+            <Button
+              variant="primary"
+              onClick={handleSubmit}
+              fullWidth
+              disabled={submitting || (action !== 'approve' && !comment.trim())}
+            >
+              {submitting ? 'Применение...' : 'Применить решение'}
             </Button>
-          )}
-          <Button
-            variant="primary"
-            onClick={handleSubmit}
-            fullWidth
-            disabled={submitting || (!comment.trim() && action !== 'approve')}
-          >
-            {submitting ? 'Применение...' : 'Применить решение'}
-          </Button>
-        </ButtonsRow>
-      </ModerationForm>
+          </ButtonsRow>
+        </ModerationForm>
+      )}
     </PanelContainer>
   );
 };

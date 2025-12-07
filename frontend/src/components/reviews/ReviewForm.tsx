@@ -15,8 +15,6 @@ interface ReviewFormProps {
     category: string;
     content: string;
     has_media: boolean;
-    // ⬇️ НОВЫЕ ОПЦИОНАЛЬНЫЕ ПОЛЯ
-    rating?: number;        // Оценка 1-5 (для poi_review)
     poi?: string;          // UUID POI (если известен)
   }) => Promise<void>;
   onCancel?: () => void;
@@ -218,7 +216,6 @@ export const ReviewForm: React.FC<ReviewFormProps> = ({
   const [category, setCategory] = useState(initialCategory || '');
   const [content, setContent] = useState('');
   const [hasMedia, setHasMedia] = useState(false);
-  const [rating, setRating] = useState<number | null>(null); // ⬅️ НОВОЕ: оценка 1-5
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -251,8 +248,7 @@ export const ReviewForm: React.FC<ReviewFormProps> = ({
         category,
         content: content.trim(),
         has_media: hasMedia,
-        // ⬇️ НОВЫЕ ПОЛЯ
-        ...(rating !== null && reviewType === 'poi_review' && { rating }),
+        // Связь с POI если указана
         ...(initialData?.poi && { poi: initialData.poi }),
       });
     } catch (err: any) {
@@ -345,35 +341,6 @@ export const ReviewForm: React.FC<ReviewFormProps> = ({
           required
         />
 
-        {/* Поле оценки (только для отзывов о местах) */}
-        {reviewType === 'poi_review' && (
-          <div>
-            <label
-              style={{
-                display: 'block',
-                fontSize: theme.typography.fontSize.sm,
-                fontWeight: theme.typography.fontWeight.medium,
-                color: theme.colors.text.secondary,
-                marginBottom: theme.spacing.xs,
-              }}
-            >
-              Оценка (1-5) <span style={{ color: theme.colors.text.muted }}>(опционально)</span>
-            </label>
-            <Input
-              type="number"
-              min="1"
-              max="5"
-              step="1"
-              value={rating?.toString() || ''}
-              onChange={(e) => {
-                const value = e.target.value;
-                setRating(value ? parseInt(value, 10) : null);
-              }}
-              placeholder="Выберите оценку от 1 до 5"
-            />
-          </div>
-        )}
-
         <div>
           <label
             style={{
@@ -401,7 +368,7 @@ export const ReviewForm: React.FC<ReviewFormProps> = ({
             onChange={(e) => setHasMedia(e.target.checked)}
           />
           <CheckboxLabel>
-            У меня есть фото или видео для подтверждения
+            📷 Прикрепить фото (за фото вы получите больше баллов!)
           </CheckboxLabel>
         </MediaCheckbox>
 

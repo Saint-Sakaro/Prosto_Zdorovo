@@ -12,6 +12,8 @@ from django.utils import timezone
 from django.db import transaction
 from maps.models import POI, POICategory, POIRating
 from maps.services.health_impact_score_calculator import HealthImpactScoreCalculator
+from maps.services.llm_service import LLMService
+from gamification.models import Review
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,7 +28,11 @@ def recalculate_time_decay():
     Оптимизировано: batch processing для производительности.
     """
     calculator = HealthImpactScoreCalculator()
-    pois = POI.objects.filter(is_active=True).select_related('category', 'rating')
+    # Пересчитываем рейтинг только для одобренных мест
+    pois = POI.objects.filter(
+        is_active=True, 
+        moderation_status='approved'
+    ).select_related('category', 'rating')
     total = pois.count()
     processed = 0
     errors = 0
@@ -107,7 +113,11 @@ def recalculate_all_ratings():
     Оптимизировано: batch processing для производительности.
     """
     calculator = HealthImpactScoreCalculator()
-    pois = POI.objects.filter(is_active=True).select_related('category', 'rating')
+    # Пересчитываем рейтинг только для одобренных мест
+    pois = POI.objects.filter(
+        is_active=True, 
+        moderation_status='approved'
+    ).select_related('category', 'rating')
     total = pois.count()
     processed = 0
     errors = 0
@@ -153,4 +163,84 @@ def recalculate_all_ratings():
         'processed': processed,
         'errors': errors
     }
+
+
+@shared_task
+def update_poi_llm_rating(poi_id):
+    """
+    Обновляет LLM рейтинг и отчет для POI на основе анализа всех отзывов
+    
+    Args:
+        poi_id: ID объекта POI
+    """
+    try:
+        poi = POI.objects.get(id=poi_id)
+    except POI.DoesNotExist:
+        logger.error(f"POI с ID {poi_id} не найден")
+        return
+    
+    # Получаем все одобренные отзывы для этой точки
+    reviews = Review.objects.filter(
+        poi=poi,
+        moderation_status='approved',
+        review_type='poi_review'
+    ).select_related('author').order_by('-created_at')
+    
+    if not reviews.exists():
+        logger.info(f"Нет одобренных отзывов для POI {poi_id}, пропускаем LLM анализ")
+        return
+    
+    # Формируем список отзывов для анализа
+    reviews_data = []
+    for review in reviews:
+        reviews_data.append({
+            'content': review.content,
+            'rating': review.rating,
+            'author': review.author.username if review.author else 'Аноним',
+            'created_at': review.created_at.strftime('%Y-%m-%d %H:%M:%S') if review.created_at else '',
+            'has_media': review.has_media
+        })
+    
+    try:
+        # Инициализируем LLM сервис
+        llm_service = LLMService()
+        
+        # Анализируем отзывы и получаем рейтинг
+        analysis_result = llm_service.analyze_poi_reviews(poi, reviews_data)
+        
+        # Генерируем отчет
+        report = llm_service.generate_poi_report(poi, reviews_data, analysis_result)
+        
+        # Обновляем POI
+        with transaction.atomic():
+            poi.llm_rating = analysis_result.get('llm_rating')
+            poi.llm_report = report
+            poi.llm_analyzed_at = timezone.now()
+            poi.save(update_fields=['llm_rating', 'llm_report', 'llm_analyzed_at'])
+        
+        logger.info(f"LLM рейтинг обновлен для POI {poi_id}: {analysis_result.get('llm_rating')}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении LLM рейтинга для POI {poi_id}: {str(e)}")
+        import traceback
+        logger.debug(f'Traceback: {traceback.format_exc()}')
+
+
+@shared_task
+def update_all_pois_llm_ratings():
+    """
+    Массовое обновление LLM рейтингов для всех POI с отзывами
+    """
+    pois_with_reviews = POI.objects.filter(
+        reviews__moderation_status='approved',
+        reviews__review_type='poi_review'
+    ).distinct()
+    
+    total = pois_with_reviews.count()
+    logger.info(f"Начало массового обновления LLM рейтингов для {total} объектов")
+    
+    for poi in pois_with_reviews:
+        update_poi_llm_rating.delay(poi.id)
+    
+    logger.info(f"Запущено обновление LLM рейтингов для {total} объектов")
 

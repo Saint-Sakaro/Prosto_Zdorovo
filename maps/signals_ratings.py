@@ -52,9 +52,9 @@ def recalculate_rating_on_review_change(sender, instance, **kwargs):
         if hasattr(instance, 'poi') and instance.poi:
             poi = instance.poi
         else:
-            # Ищем по координатам
+            # Ищем по координатам среди одобренных мест
             from geopy.distance import geodesic
-            pois = POI.objects.filter(is_active=True)
+            pois = POI.objects.filter(is_active=True, moderation_status='approved')
             
             for p in pois:
                 distance = geodesic(
@@ -86,9 +86,9 @@ def recalculate_rating_on_review_delete(sender, instance, **kwargs):
         lat = instance.latitude
         lon = instance.longitude
         
-        # Ищем POI по координатам
+        # Ищем POI по координатам среди одобренных мест
         from geopy.distance import geodesic
-        pois = POI.objects.filter(is_active=True)
+        pois = POI.objects.filter(is_active=True, moderation_status='approved')
         
         for poi in pois:
             distance = geodesic(

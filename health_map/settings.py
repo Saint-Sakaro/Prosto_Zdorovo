@@ -244,10 +244,15 @@ GAMIFICATION_CONFIG = {
 YANDEX_GEOCODER_API_KEY = env('YANDEX_GEOCODER_API_KEY', default=None)
 
 # GIGACHAT LLM настройки (для генерации анкет и анализа отзывов)
-GIGACHAT_CLIENT_ID = env('GIGACHAT_CLIENT_ID', default=None)
-GIGACHAT_CLIENT_SECRET = env('GIGACHAT_CLIENT_SECRET', default=None)
-GIGACHAT_SCOPE = env('GIGACHAT_SCOPE', default='GIGACHAT_API_PERS')
+# Готовый Base64 ключ из личного кабинета Studio (формат: Base64(UUID1:UUID2))
+# Получите ключ в разделе "Настройки API" -> "Получить ключ" в личном кабинете GigaChat Studio
+GIGACHAT_CREDS = env('GIGACHAT_CREDS', default=None)  # Готовый Base64 ключ авторизации
+# Альтернативное имя переменной для совместимости
+GIGACHAT_API_KEY = env('GIGACHAT_API_KEY', default=None)  # То же самое что GIGACHAT_CREDS
+GIGACHAT_SCOPE = env('GIGACHAT_SCOPE', default='GIGACHAT_API_PERS')  # GIGACHAT_API_PERS для бесплатного тарифа
 GIGACHAT_MODEL = env('GIGACHAT_MODEL', default='GigaChat')
+# Отключение проверки SSL (ТОЛЬКО для разработки! Опасно для production!)
+GIGACHAT_VERIFY_SSL = env.bool('GIGACHAT_VERIFY_SSL', default=False)
 
 # OpenSearch настройки (для точных геопространственных запросов)
 OPENSEARCH_HOST = env('OPENSEARCH_HOST', default='localhost')

@@ -18,7 +18,7 @@ from django.db import transaction
 import pandas as pd
 import logging
 from decimal import Decimal, InvalidOperation
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from django.contrib.auth.models import User
 from maps.models import POI, POICategory, POIRating, FormSchema
@@ -49,7 +49,8 @@ class POIViewSet(viewsets.ModelViewSet):
     - POST /api/maps/pois/ - создание POI (требует авторизации)
     - GET /api/maps/pois/in-bbox/ - POI в bounding box
     """
-    queryset = POI.objects.filter(is_active=True)
+    # Показываем только активные и одобренные места
+    queryset = POI.objects.filter(is_active=True, moderation_status='approved')
     lookup_field = 'uuid'  # Поиск по UUID вместо id
     
     def get_permissions(self):
@@ -78,8 +79,13 @@ class POIViewSet(viewsets.ModelViewSet):
         - category: slug категории
         - categories: список slug категорий (через запятую)
         - bbox: bounding box (sw_lat,sw_lon,ne_lat,ne_lon)
+        
+        Показывает только активные и одобренные места.
         """
-        queryset = POI.objects.filter(is_active=True).select_related('category', 'rating')
+        queryset = POI.objects.filter(
+            is_active=True, 
+            moderation_status='approved'
+        ).select_related('category', 'rating')
         
         # Фильтр по категории
         category = self.request.query_params.get('category', None)
@@ -268,13 +274,8 @@ class POICategoryViewSet(viewsets.ModelViewSet):
         try:
             form_schema = category.form_schema
         except FormSchema.DoesNotExist:
-            # Если схемы нет, возвращаем 404 для GET или создаем для PUT
-            if request.method == 'GET':
-                return Response(
-                    {'error': 'Схема анкеты не найдена для этой категории'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-            # Для PUT создаем новую схему
+            # Если схемы нет, автоматически создаем пустую схему
+            # Это позволяет фронтенду получать схему даже если она еще не создана
             form_schema = FormSchema.objects.create(
                 category=category,
                 name=f'Схема для {category.name}',
@@ -481,24 +482,33 @@ class POISubmissionViewSet(viewsets.ModelViewSet):
     - GET /api/maps/pois/submissions/pending/ - список заявок на модерацию (модераторы)
     - POST /api/maps/pois/submissions/{uuid}/moderate/ - модерировать заявку (модераторы)
     """
-    queryset = POI.objects.filter(moderation_status='pending')
-    serializer_class = POISubmissionSerializer
+    queryset = POI.objects.all()  # Базовый queryset, фильтрация происходит в get_queryset()
+    serializer_class = POISerializer  # Используем POISerializer для чтения
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = 'uuid'
+    
+    def get_serializer_class(self):
+        """
+        Выбор сериализатора в зависимости от действия:
+        - create: POISubmissionSerializer (для создания)
+        - list/retrieve: POISerializer (для чтения)
+        """
+        if self.action == 'create':
+            return POISubmissionSerializer
+        return POISerializer
     
     def get_queryset(self):
         """
         Фильтровать заявки по пользователю (для обычных пользователей)
-        Для модераторов - показывать все заявки
+        Для модераторов - показывать все заявки на модерацию (pending)
+        Для обычных пользователей - показывать ВСЕ свои заявки (любого статуса)
         """
-        queryset = POI.objects.filter(moderation_status='pending')
-        
-        # Если пользователь - модератор, показываем все заявки
+        # Если пользователь - модератор, показываем все заявки на модерацию
         if self.request.user.is_staff:
-            return queryset
+            return POI.objects.filter(moderation_status='pending')
         
-        # Для обычных пользователей - только свои заявки
-        return queryset.filter(submitted_by=self.request.user)
+        # Для обычных пользователей - ВСЕ свои заявки (любого статуса)
+        return POI.objects.filter(submitted_by=self.request.user).order_by('-created_at')
     
     def perform_create(self, serializer):
         """
@@ -515,10 +525,14 @@ class POISubmissionViewSet(viewsets.ModelViewSet):
         """
         Получить список заявок на модерацию (только для модераторов)
         
+        Показывает только заявки со статусом pending (ожидающие модерации)
+        
         Returns:
-            Response со списком заявок со статусом pending
+            Response со списком заявок
         """
+        # Получаем только pending заявки (не подтвержденные)
         pending_pois = POI.objects.filter(moderation_status='pending').order_by('-created_at')
+        
         serializer = POISerializer(pending_pois, many=True)
         return Response({
             'count': pending_pois.count(),
@@ -570,6 +584,7 @@ class POISubmissionViewSet(viewsets.ModelViewSet):
             
         elif action == 'request_changes':
             poi.moderation_status = 'changes_requested'
+            poi.is_active = False  # Остается неактивным до исправления
             poi.moderated_by = request.user
             poi.moderated_at = timezone.now()
             poi.moderation_comment = comment
@@ -691,10 +706,14 @@ class BulkUploadPOIView(APIView):
                 # Нормализуем названия колонок
                 df.columns = df.columns.str.strip().str.lower()
                 
-                # Определяем маппинг колонок
-                column_mapping = self._detect_column_mapping(df.columns.tolist())
+                # Определяем маппинг колонок (используем первую строку как пример)
+                # Проверяем доступность Gigachat перед использованием для сопоставления колонок
+                sample_row = df.iloc[0] if len(df) > 0 else None
+                gigachat_available = self._check_gigachat_availability()
+                column_mapping = self._detect_column_mapping(df.columns.tolist(), sample_row if gigachat_available else None)
                 
                 # Для режима с листами как категориями - колонка категории не нужна
+                # Категория будет определена через Gigachat или взята из названия листа
                 required_columns = ['name', 'address', 'latitude', 'longitude']
                 missing_columns = [col for col in required_columns if col not in column_mapping]
                 
@@ -707,6 +726,7 @@ class BulkUploadPOIView(APIView):
                     continue
                 
                 # Получаем или создаем категорию по названию листа
+                # В этом режиме категория берется из названия листа
                 category = self._get_or_create_category(
                     sheet_name.strip(),
                     auto_create_categories,
@@ -768,11 +788,15 @@ class BulkUploadPOIView(APIView):
         # Нормализуем названия колонок (приводим к нижнему регистру, убираем пробелы)
         df.columns = df.columns.str.strip().str.lower()
         
-        # Определяем маппинг колонок
-        column_mapping = self._detect_column_mapping(df.columns.tolist())
+        # Проверяем доступность Gigachat перед массовой обработкой
+        gigachat_available = self._check_gigachat_availability()
         
-        # Проверяем наличие обязательных колонок
-        required_columns = ['name', 'address', 'latitude', 'longitude', 'category']
+        # Определяем маппинг колонок (используем первую строку как пример, только если Gigachat доступен)
+        sample_row = df.iloc[0] if len(df) > 0 else None
+        column_mapping = self._detect_column_mapping(df.columns.tolist(), sample_row if gigachat_available else None)
+        
+        # Проверяем наличие обязательных колонок (категория теперь опциональна)
+        required_columns = ['name', 'address', 'latitude', 'longitude']
         missing_columns = [col for col in required_columns if col not in column_mapping]
         
         if missing_columns:
@@ -784,23 +808,51 @@ class BulkUploadPOIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Получаем список доступных категорий для определения через Gigachat
+        available_categories = list(POICategory.objects.filter(is_active=True).values_list('name', flat=True))
+        
+        # Проверяем доступность Gigachat один раз перед обработкой всех строк
+        gigachat_available = self._check_gigachat_availability()
+        
         # Обрабатываем каждую строку
         for index, row in df.iterrows():
             try:
                 poi_data = self._extract_poi_data(row, column_mapping)
                 
-                # Получаем или создаем категорию
-                category = self._get_or_create_category(
-                    poi_data['category'],
-                    auto_create_categories,
-                    stats
-                )
+                # Определяем категорию
+                category = None
                 
+                # Если категория указана в данных - используем её
+                if 'category' in poi_data and poi_data['category']:
+                    category = self._get_or_create_category(
+                        poi_data['category'],
+                        auto_create_categories,
+                        stats
+                    )
+                
+                # Если категория не указана - определяем через Gigachat (только если доступен)
+                if not category and gigachat_available:
+                    category = self._detect_category_with_gigachat(
+                        poi_data,
+                        available_categories,
+                        auto_create_categories,
+                        stats
+                    )
+                elif not category and not gigachat_available:
+                    # Если Gigachat недоступен и категория не указана - пропускаем запись
+                    stats['errors'] += 1
+                    stats['errors_details'].append({
+                        'row': index + 2,  # +2 потому что индекс с 0, и есть заголовок
+                        'message': 'Категория не указана, а Gigachat недоступен для автоматического определения категории.'
+                    })
+                    continue
+                
+                # Если категория так и не определена - пропускаем запись
                 if not category:
                     stats['errors'] += 1
                     stats['errors_details'].append({
                         'row': index + 2,  # +2 потому что индекс с 0, и есть заголовок
-                        'message': f'Категория "{poi_data["category"]}" не найдена'
+                        'message': 'Не удалось определить категорию объекта. Объект не подходит ни к одной из существующих категорий.'
                     })
                     continue
                 
@@ -820,16 +872,43 @@ class BulkUploadPOIView(APIView):
         
         return Response(stats, status=status.HTTP_200_OK)
     
-    def _detect_column_mapping(self, columns: List[str]) -> Dict[str, str]:
+    def _detect_column_mapping(self, columns: List[str], sample_row: Optional[pd.Series] = None) -> Dict[str, str]:
         """
         Определить маппинг колонок Excel на поля POI
         
+        Использует Gigachat для умного сопоставления, если доступен.
+        Иначе использует базовое сопоставление по ключевым словам.
+        
         Args:
             columns: Список названий колонок из Excel
+            sample_row: Опционально - пример строки данных для лучшего понимания
             
         Returns:
             dict: Маппинг {поле_poi: название_колонки_excel}
         """
+        from maps.services.llm_service import LLMService
+        
+        # Пытаемся использовать Gigachat для умного сопоставления (только если sample_row передан)
+        if sample_row is not None:
+            try:
+                llm_service = LLMService()
+                # Проверяем доступность перед использованием
+                token = llm_service._get_access_token()
+                if token:
+                    sample_dict = {col: str(sample_row[col])[:50] for col in columns[:10]}  # Первые 10 колонок
+                    gigachat_mapping = llm_service.map_columns_to_fields(columns, sample_dict)
+                    
+                    # Преобразуем маппинг из формата {колонка: поле} в {поле: колонка}
+                    if gigachat_mapping:
+                        reversed_mapping = {field: col for col, field in gigachat_mapping.items()}
+                        logger.info(f"✅ Использован Gigachat для сопоставления колонок: {reversed_mapping}")
+                        return reversed_mapping
+                else:
+                    logger.info("ℹ️ Gigachat недоступен, используется базовое сопоставление колонок")
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось использовать Gigachat для сопоставления колонок: {e}")
+        
+        # Fallback на базовое сопоставление
         mapping = {}
         
         # Варианты названий для каждого поля
@@ -901,13 +980,17 @@ class BulkUploadPOIView(APIView):
         if not (-180 <= data['longitude'] <= 180):
             raise ValueError(f'Долгота должна быть от -180 до 180, получено: {data["longitude"]}')
         
-        # Категория - либо из параметра, либо из колонки
+        # Категория - либо из параметра, либо из колонки (опционально)
         if category_name:
             data['category'] = category_name
         elif 'category' in column_mapping:
-            data['category'] = str(row[column_mapping['category']]).strip()
+            category_value = row[column_mapping['category']]
+            if pd.notna(category_value):
+                data['category'] = str(category_value).strip()
+            else:
+                data['category'] = None  # Категория не указана - будет определена через Gigachat
         else:
-            raise ValueError('Категория не указана')
+            data['category'] = None  # Категория не указана - будет определена через Gigachat
         
         # Опциональные поля
         if 'description' in column_mapping:
@@ -978,6 +1061,125 @@ class BulkUploadPOIView(APIView):
             return category
         
         return None
+    
+    def _check_gigachat_availability(self) -> bool:
+        """
+        Проверяет доступность Gigachat API один раз перед массовой обработкой
+        
+        Кеширует результат проверки в атрибуте класса, чтобы не проверять несколько раз.
+        
+        Returns:
+            bool: True если Gigachat доступен, False иначе
+        """
+        # Кешируем результат проверки, чтобы не проверять несколько раз
+        if hasattr(self, '_gigachat_available_cached'):
+            return self._gigachat_available_cached
+        
+        from maps.services.llm_service import LLMService
+        from django.conf import settings
+        
+        try:
+            llm_service = LLMService()
+            # Проверяем, что credentials настроены (credentials могут быть захардкожены в LLMService или в settings)
+            if hasattr(llm_service, 'credentials') and llm_service.credentials:
+                # Проверяем наличие credentials (тестовый вызов может быть слишком медленным)
+                logger.info("✅ Gigachat credentials настроены, будет использован при необходимости")
+                self._gigachat_available_cached = True
+                return True
+            else:
+                # Также проверяем settings на случай, если credentials там
+                api_key = getattr(settings, 'GIGACHAT_API_KEY', None) or getattr(settings, 'GIGACHAT_CREDS', None)
+                client_id = getattr(settings, 'GIGACHAT_CLIENT_ID', None)
+                client_secret = getattr(settings, 'GIGACHAT_CLIENT_SECRET', None)
+                
+                if not api_key and (not client_id or not client_secret):
+                    logger.info("ℹ️ Gigachat учетные данные не настроены - будет использовано базовое сопоставление")
+                    logger.info("💡 Для бесплатной версии укажите GIGACHAT_API_KEY в .env файле")
+                    logger.info("💡 Для платной версии укажите GIGACHAT_CLIENT_ID и GIGACHAT_CLIENT_SECRET в .env файле")
+                    self._gigachat_available_cached = False
+                    return False
+                else:
+                    # Credentials есть в settings, но не в LLMService - это нормально, они будут использованы при вызове
+                    logger.info("✅ Gigachat credentials найдены в settings, будет использован при необходимости")
+                    self._gigachat_available_cached = True
+                    return True
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка при проверке доступности Gigachat: {e}. Gigachat будет пропущен.")
+            import traceback
+            logger.debug(f'Traceback: {traceback.format_exc()}')
+            self._gigachat_available_cached = False
+            return False
+    
+    def _detect_category_with_gigachat(
+        self,
+        poi_data: Dict[str, Any],
+        available_categories: List[str],
+        auto_create: bool,
+        stats: Dict[str, Any]
+    ) -> Optional[POICategory]:
+        """
+        Определить категорию объекта через Gigachat
+        
+        Args:
+            poi_data: Данные объекта
+            available_categories: Список доступных категорий
+            auto_create: Создавать категорию автоматически, если не найдена
+            stats: Словарь со статистикой
+            
+        Returns:
+            POICategory или None (если объект не подходит ни к одной категории)
+        """
+        from maps.services.llm_service import LLMService
+        
+        if not available_categories:
+            logger.warning("Нет доступных категорий для определения через Gigachat")
+            return None
+        
+        try:
+            llm_service = LLMService()
+            
+            # Формируем данные для анализа
+            analysis_data = {
+                'название': poi_data.get('name', ''),
+                'адрес': poi_data.get('address', ''),
+            }
+            
+            # Добавляем описание, если есть
+            if poi_data.get('description'):
+                analysis_data['описание'] = poi_data['description']
+            
+            # Добавляем другие поля, которые могут помочь в определении категории
+            for key in ['phone', 'website', 'email', 'working_hours']:
+                if poi_data.get(key):
+                    analysis_data[key] = poi_data[key]
+            
+            # Добавляем form_data если есть
+            if poi_data.get('form_data'):
+                analysis_data.update(poi_data['form_data'])
+            
+            # Определяем категорию через Gigachat
+            result = llm_service.detect_category_from_data(analysis_data, available_categories)
+            
+            if result.get('rejected'):
+                logger.info(f"❌ Gigachat отклонил объект '{poi_data.get('name')}': {result.get('reasoning')}")
+                return None
+            
+            category_name = result.get('category')
+            if not category_name:
+                logger.warning(f"⚠️ Gigachat не смог определить категорию для '{poi_data.get('name')}'")
+                return None
+            
+            # Получаем или создаем категорию
+            category = self._get_or_create_category(category_name, auto_create, stats)
+            
+            if category:
+                logger.info(f"✅ Gigachat определил категорию '{category_name}' для '{poi_data.get('name')}' (confidence: {result.get('confidence', 0):.2f})")
+            
+            return category
+            
+        except Exception as e:
+            logger.error(f"Ошибка при определении категории через Gigachat: {e}")
+            return None
     
     def _create_poi_with_gigachat(self, poi_data: Dict[str, Any], category: POICategory, user: User) -> POI:
         """
@@ -1061,4 +1263,197 @@ class BulkUploadPOIView(APIView):
         rating_calculator.calculate_full_rating(poi, save=True)
         
         return poi
+
+
+class POISubmitView(APIView):
+    """
+    Простой View для создания заявки на POI через алиас /api/maps/pois/submit/
+    Используется для совместимости с фронтендом
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        """
+        Создать заявку на место через алиас submit
+        Используем ту же логику, что и POISubmissionViewSet.create()
+        """
+        logger.info("=" * 80)
+        logger.info("🔵 POISubmitView.post() - НАЧАЛО")
+        logger.info(f"🔵 Пользователь: {request.user.username if request.user.is_authenticated else 'НЕ АВТОРИЗОВАН'}")
+        logger.info(f"🔵 Метод запроса: {request.method}")
+        logger.info(f"🔵 Content-Type: {request.content_type}")
+        logger.info(f"🔵 Данные запроса (raw): {request.body}")
+        logger.info(f"🔵 Данные запроса (parsed): {request.data}")
+        logger.info(f"🔵 Query params: {request.query_params}")
+        
+        try:
+            # Проверяем авторизацию
+            if not request.user.is_authenticated:
+                logger.error("❌ Пользователь не авторизован!")
+                return Response(
+                    {'error': 'Требуется авторизация'},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            
+            logger.info(f"✅ Пользователь авторизован: {request.user.username}")
+            
+            # Используем сериализатор для создания
+            logger.info("🔵 Создаем сериализатор...")
+            serializer = POISubmissionSerializer(data=request.data, context={'request': request})
+            logger.info(f"🔵 Сериализатор создан. Данные: {serializer.initial_data}")
+            
+            logger.info("🔵 Проверяем валидность данных...")
+            is_valid = serializer.is_valid(raise_exception=False)
+            logger.info(f"🔵 Валидность: {is_valid}")
+            
+            if not is_valid:
+                logger.error("❌ Ошибки валидации:")
+                logger.error(f"❌ {serializer.errors}")
+                logger.error(f"❌ Тип ошибок: {type(serializer.errors)}")
+                
+                error_message = 'Проверьте введенные данные'
+                if isinstance(serializer.errors, dict):
+                    first_key = next(iter(serializer.errors.keys()), None)
+                    if first_key:
+                        first_error = serializer.errors[first_key]
+                        logger.error(f"❌ Первая ошибка (ключ: {first_key}): {first_error}")
+                        if isinstance(first_error, list):
+                            error_message = first_error[0] if first_error else 'Проверьте введенные данные'
+                        elif isinstance(first_error, str):
+                            error_message = first_error
+                
+                return Response(
+                    {
+                        'error': 'Ошибка валидации данных',
+                        'message': error_message,
+                        'details': serializer.errors,
+                        'debug': {
+                            'raw_data': request.data,
+                            'user': request.user.username,
+                            'validation_errors': serializer.errors
+                        } if settings.DEBUG else None
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            logger.info("✅ Валидация прошла успешно")
+            logger.info("🔵 Сохраняем объект...")
+            
+            try:
+                poi = serializer.save()
+                logger.info(f"✅ POI создан успешно!")
+                logger.info(f"✅ UUID: {poi.uuid}")
+                logger.info(f"✅ Название: {poi.name}")
+                logger.info(f"✅ Категория: {poi.category.name if poi.category else 'НЕТ'}")
+                logger.info(f"✅ Статус модерации: {poi.moderation_status}")
+                logger.info(f"✅ Создал: {poi.submitted_by.username if poi.submitted_by else 'НЕТ'}")
+                
+                # Если модератор создал заявку, автоматически подтверждаем её
+                is_moderator = request.user.is_staff or request.user.is_superuser
+                if is_moderator:
+                    logger.info("🔵 Модератор создал заявку - автоматически подтверждаем...")
+                    poi.moderation_status = 'approved'
+                    poi.is_active = True
+                    poi.moderated_by = request.user
+                    poi.moderated_at = timezone.now()
+                    poi.moderation_comment = 'Автоматически подтверждено модератором'
+                    poi.verified = True
+                    poi.verified_by = request.user
+                    poi.verified_at = timezone.now()
+                    poi.save()
+                    
+                    # Рассчитываем полный рейтинг
+                    calculator = HealthImpactScoreCalculator()
+                    calculator.calculate_full_rating(poi, save=True)
+                    logger.info(f"✅ Заявка автоматически подтверждена и рейтинг рассчитан")
+                
+                # Возвращаем данные в формате, который ожидает фронтенд
+                logger.info("🔵 Сериализуем ответ...")
+                response_serializer = POISerializer(poi, context={'request': request})
+                logger.info(f"✅ Ответ готов: {response_serializer.data}")
+                
+                logger.info("=" * 80)
+                logger.info("✅ POISubmitView.post() - УСПЕХ")
+                logger.info("=" * 80)
+                
+                return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+                
+            except Exception as save_error:
+                logger.error("=" * 80)
+                logger.error("❌ ОШИБКА ПРИ СОХРАНЕНИИ")
+                logger.error(f"❌ Тип ошибки: {type(save_error)}")
+                logger.error(f"❌ Сообщение: {str(save_error)}")
+                logger.error(f"❌ Аргументы: {save_error.args}")
+                import traceback
+                logger.error(f"❌ Traceback:\n{traceback.format_exc()}")
+                logger.error("=" * 80)
+                
+                raise save_error
+            
+        except drf_serializers.ValidationError as e:
+            logger.error("=" * 80)
+            logger.error("❌ ОШИБКА ВАЛИДАЦИИ (DRF)")
+            logger.error(f"❌ Тип: {type(e)}")
+            logger.error(f"❌ Detail: {e.detail}")
+            logger.error(f"❌ Detail type: {type(e.detail)}")
+            import traceback
+            logger.error(f"❌ Traceback:\n{traceback.format_exc()}")
+            logger.error("=" * 80)
+            
+            error_message = 'Проверьте введенные данные'
+            if isinstance(e.detail, dict):
+                first_key = next(iter(e.detail.keys()), None)
+                if first_key:
+                    first_error = e.detail[first_key]
+                    logger.error(f"❌ Первая ошибка (ключ: {first_key}): {first_error}")
+                    if isinstance(first_error, list):
+                        error_message = first_error[0] if first_error else 'Проверьте введенные данные'
+                    elif isinstance(first_error, str):
+                        error_message = first_error
+            elif isinstance(e.detail, list):
+                error_message = e.detail[0] if e.detail else 'Проверьте введенные данные'
+            elif isinstance(e.detail, str):
+                error_message = e.detail
+            
+            return Response(
+                {
+                    'error': 'Ошибка валидации данных',
+                    'message': error_message,
+                    'details': e.detail,
+                    'debug': {
+                        'raw_data': request.data,
+                        'user': request.user.username,
+                        'error_type': str(type(e)),
+                        'error_detail': e.detail
+                    } if settings.DEBUG else None
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error("=" * 80)
+            logger.error("❌ НЕОЖИДАННАЯ ОШИБКА")
+            logger.error(f"❌ Тип ошибки: {type(e)}")
+            logger.error(f"❌ Сообщение: {str(e)}")
+            logger.error(f"❌ Аргументы: {e.args}")
+            import traceback
+            logger.error(f"❌ Полный traceback:\n{traceback.format_exc()}")
+            logger.error(f"❌ Данные запроса: {request.data}")
+            logger.error(f"❌ Пользователь: {request.user.username if request.user.is_authenticated else 'НЕ АВТОРИЗОВАН'}")
+            logger.error("=" * 80)
+            
+            error_msg = str(e) if settings.DEBUG else 'Произошла ошибка при создании заявки'
+            return Response(
+                {
+                    'error': 'Не удалось создать заявку',
+                    'message': error_msg,
+                    'debug': {
+                        'error_type': str(type(e)),
+                        'error_message': str(e),
+                        'raw_data': request.data,
+                        'user': request.user.username if request.user.is_authenticated else None,
+                        'traceback': traceback.format_exc() if settings.DEBUG else None
+                    } if settings.DEBUG else None
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 

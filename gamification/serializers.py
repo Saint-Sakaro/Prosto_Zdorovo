@@ -55,6 +55,11 @@ class ReviewSerializer(serializers.ModelSerializer):
         read_only=True,
         allow_null=True
     )
+    poi_uuid = serializers.SerializerMethodField()
+    
+    def get_poi_uuid(self, obj):
+        """Получить UUID POI если есть связь"""
+        return str(obj.poi.uuid) if obj.poi else None
     
     class Meta:
         model = Review
@@ -64,7 +69,7 @@ class ReviewSerializer(serializers.ModelSerializer):
             'content', 'has_media', 'is_unique',
             'moderation_status', 'moderated_by', 'moderated_by_username',
             'moderated_at', 'moderation_comment',
-            'rating', 'poi', 'sentiment_score', 'extracted_facts',
+            'rating', 'poi', 'poi_uuid', 'sentiment_score', 'extracted_facts',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
@@ -83,12 +88,37 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
     - author устанавливается автоматически из request.user
     - Проверка уникальности выполняется при создании
     """
+    poi_uuid = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+    
+    def validate_poi_uuid(self, value):
+        """Валидация UUID POI"""
+        if value:
+            from maps.models import POI
+            try:
+                poi = POI.objects.get(uuid=value)
+                return value
+            except POI.DoesNotExist:
+                raise serializers.ValidationError("POI с указанным UUID не найден")
+        return value
+    
+    def create(self, validated_data):
+        """Создание отзыва с обработкой poi_uuid"""
+        poi_uuid = validated_data.pop('poi_uuid', None)
+        if poi_uuid:
+            from maps.models import POI
+            try:
+                poi = POI.objects.get(uuid=poi_uuid)
+                validated_data['poi'] = poi
+            except POI.DoesNotExist:
+                pass  # POI не найден, но не критично
+        
+        return super().create(validated_data)
     
     class Meta:
         model = Review
         fields = [
             'review_type', 'latitude', 'longitude', 'category',
-            'content', 'has_media', 'rating', 'poi',
+            'content', 'has_media', 'rating', 'poi', 'poi_uuid',
         ]
 
 

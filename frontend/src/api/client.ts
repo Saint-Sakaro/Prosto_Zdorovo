@@ -58,7 +58,38 @@ apiClient.interceptors.response.use(
       }
     }
 
-    return Promise.reject(error);
+    // Улучшенная обработка ошибок для лучшей отладки
+    if (error.response) {
+      // Сервер ответил с ошибкой
+      const errorData = error.response.data;
+      const errorMessage = errorData?.message || errorData?.error || errorData?.detail || error.message;
+      
+      // Логируем ошибку для отладки
+      console.error('API Error:', {
+        url: originalRequest?.url,
+        method: originalRequest?.method,
+        status: error.response.status,
+        data: errorData,
+        message: errorMessage,
+      });
+      
+      // Создаем улучшенный объект ошибки
+      const enhancedError = new Error(errorMessage);
+      (enhancedError as any).response = error.response;
+      (enhancedError as any).status = error.response.status;
+      (enhancedError as any).data = errorData;
+      return Promise.reject(enhancedError);
+    } else if (error.request) {
+      // Запрос был отправлен, но ответа не получено
+      console.error('Network Error:', error.request);
+      const networkError = new Error('Нет соединения с сервером. Проверьте подключение к интернету.');
+      (networkError as any).isNetworkError = true;
+      return Promise.reject(networkError);
+    } else {
+      // Что-то другое пошло не так
+      console.error('Request Error:', error.message);
+      return Promise.reject(error);
+    }
   }
 );
 

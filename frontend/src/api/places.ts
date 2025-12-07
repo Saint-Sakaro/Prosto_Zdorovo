@@ -57,6 +57,12 @@ export interface PlaceSubmission {
     username: string;
     email: string;
   };
+  moderated_by?: {
+    id: number;
+    username: string;
+  };
+  moderation_comment?: string;
+  moderated_at?: string;
   created_at: string;
   updated_at: string;
 }

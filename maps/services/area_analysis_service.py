@@ -177,7 +177,11 @@ class AreaAnalysisService:
         
         # Fallback на старый метод если OpenSearch недоступен
         # Получаем все активные POI
-        pois = POI.objects.filter(is_active=True).select_related('category', 'rating')
+        # Показываем только активные и одобренные места
+        pois = POI.objects.filter(
+            is_active=True, 
+            moderation_status='approved'
+        ).select_related('category', 'rating')
         
         # Фильтруем по категориям если указаны
         if category_filters:
@@ -230,8 +234,10 @@ class AreaAnalysisService:
         Returns:
             QuerySet: POI в bounding box
         """
+        # Возвращаем только активные и одобренные места
         return POI.objects.filter(
             is_active=True,
+            moderation_status='approved',
             latitude__gte=float(sw_lat),
             latitude__lte=float(ne_lat),
             longitude__gte=float(sw_lon),

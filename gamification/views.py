@@ -17,6 +17,8 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.contrib.auth.models import User
 from django.db.models import Q
 from django.utils import timezone
+from django.conf import settings
+import logging
 
 from gamification.models import (
     UserProfile, Review, RewardTransaction, Reward, UserReward,
@@ -122,6 +124,35 @@ class ReviewViewSet(viewsets.ModelViewSet):
             return ReviewCreateSerializer
         return ReviewSerializer
     
+    def create(self, request, *args, **kwargs):
+        """
+        Переопределяем create для лучшей обработки ошибок
+        """
+        serializer = self.get_serializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.error(f'Ошибка при создании отзыва: {str(e)}', exc_info=True)
+            
+            # Если это уже ValidationError или PermissionDenied - пробрасываем дальше
+            from rest_framework.exceptions import ValidationError, PermissionDenied
+            if isinstance(e, (ValidationError, PermissionDenied)):
+                raise
+            
+            # Для других ошибок возвращаем понятное сообщение
+            error_message = str(e) if settings.DEBUG else 'Произошла ошибка при создании отзыва'
+            return Response(
+                {
+                    'error': 'Не удалось создать отзыв',
+                    'message': error_message
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
     def perform_create(self, serializer):
         """
         Создание нового отзыва с проверкой уникальности
@@ -132,58 +163,92 @@ class ReviewViewSet(viewsets.ModelViewSet):
         from gamification.utils import validate_coordinates, get_or_create_user_profile
         from django.utils import timezone as tz
         
-        uniqueness_checker = UniquenessChecker()
-        reward_manager = RewardManager()
+        logger = logging.getLogger(__name__)
         
-        # Валидация координат
-        data = serializer.validated_data
-        validate_coordinates(data['latitude'], data['longitude'])
-        
-        # Проверка блокировки аккаунта
-        user_profile = get_or_create_user_profile(self.request.user)
-        if user_profile.is_banned:
-            if user_profile.banned_until and user_profile.banned_until > tz.now():
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied("Ваш аккаунт заблокирован до {}. Обратитесь в поддержку.".format(
-                    user_profile.banned_until.strftime('%d.%m.%Y %H:%M')
-                ))
-            elif user_profile.banned_until is None:
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied("Ваш аккаунт заблокирован. Обратитесь в поддержку.")
-        
-        # Сохраняем отзыв с автором
-        review = serializer.save(author=self.request.user)
-        
-        # Проверяем уникальность
-        uniqueness_result = uniqueness_checker.check_uniqueness(
-            review.latitude,
-            review.longitude,
-            review.category,
-            review.review_type,
-            review.created_at
-        )
-        
-        review.is_unique = uniqueness_result['is_unique']
-        
-        if review.is_unique:
-            # Уникальный отзыв - отправляем на модерацию
-            review.moderation_status = 'pending'
-        else:
-            # Дубликат - автоматически принимаем и начисляем минимальные баллы
-            review.moderation_status = 'approved'
-            review.moderated_at = timezone.now()
-        
-        review.save()
-        
-        # Если не уникален - начисляем минимальные баллы сразу
-        # Важно: награды начисляются только один раз при создании
-        # Если модератор потом подтвердит этот отзыв, награды не начислятся повторно
-        if not review.is_unique:
-            reward_manager.award_review(
-                review,
-                is_unique=False,
-                has_media=review.has_media
+        try:
+            uniqueness_checker = UniquenessChecker()
+            reward_manager = RewardManager()
+            
+            # Валидация координат
+            data = serializer.validated_data
+            validate_coordinates(data['latitude'], data['longitude'])
+            
+            # Проверка блокировки аккаунта
+            user_profile = get_or_create_user_profile(self.request.user)
+            if user_profile.is_banned:
+                if user_profile.banned_until and user_profile.banned_until > tz.now():
+                    from rest_framework.exceptions import PermissionDenied
+                    raise PermissionDenied("Ваш аккаунт заблокирован до {}. Обратитесь в поддержку.".format(
+                        user_profile.banned_until.strftime('%d.%m.%Y %H:%M')
+                    ))
+                elif user_profile.banned_until is None:
+                    from rest_framework.exceptions import PermissionDenied
+                    raise PermissionDenied("Ваш аккаунт заблокирован. Обратитесь в поддержку.")
+            
+            # Сохраняем отзыв с автором
+            review = serializer.save(author=self.request.user)
+            
+            # Если POI не указан, но есть координаты - пытаемся найти ближайший POI
+            if not review.poi and review.review_type == 'poi_review':
+                from maps.models import POI
+                from django.db.models import Q
+                from decimal import Decimal
+                
+                # Ищем POI в радиусе ~50 метров от координат отзыва
+                # Используем приблизительный расчет (1 градус ≈ 111 км)
+                lat_delta = Decimal('0.00045')  # ~50 метров
+                lon_delta = Decimal('0.00045')  # ~50 метров
+                
+                nearby_pois = POI.objects.filter(
+                    latitude__gte=Decimal(str(review.latitude)) - lat_delta,
+                    latitude__lte=Decimal(str(review.latitude)) + lat_delta,
+                    longitude__gte=Decimal(str(review.longitude)) - lon_delta,
+                    longitude__lte=Decimal(str(review.longitude)) + lon_delta,
+                    is_active=True,
+                    moderation_status='approved'
+                ).order_by('id')[:1]  # Берем первый найденный
+                
+                if nearby_pois.exists():
+                    review.poi = nearby_pois.first()
+                    logger.info(f'Найден POI для отзыва: {review.poi.name} (UUID: {review.poi.uuid})')
+            
+            # Проверяем уникальность
+            uniqueness_result = uniqueness_checker.check_uniqueness(
+                review.latitude,
+                review.longitude,
+                review.category,
+                review.review_type,
+                review.created_at
             )
+            
+            review.is_unique = uniqueness_result['is_unique']
+            
+            if review.is_unique:
+                # Уникальный отзыв - отправляем на модерацию
+                review.moderation_status = 'pending'
+            else:
+                # Дубликат - автоматически принимаем и начисляем минимальные баллы
+                review.moderation_status = 'approved'
+                review.moderated_at = timezone.now()
+            
+            review.save()
+            
+            # Если не уникален - начисляем минимальные баллы сразу
+            # Важно: награды начисляются только один раз при создании
+            # Если модератор потом подтвердит этот отзыв, награды не начислятся повторно
+            if not review.is_unique:
+                reward_manager.award_review(
+                    review,
+                    is_unique=False,
+                    has_media=review.has_media
+                )
+                # Если отзыв одобрен и связан с POI - обновляем LLM рейтинг
+                if review.poi:
+                    from maps.tasks_ratings import update_poi_llm_rating
+                    update_poi_llm_rating.delay(review.poi.id)
+        except Exception as e:
+            logger.error(f'Ошибка в perform_create: {str(e)}', exc_info=True)
+            raise
     
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def moderate(self, request, pk=None):
@@ -199,38 +264,54 @@ class ReviewViewSet(viewsets.ModelViewSet):
         Returns:
             Response с обновленным отзывом
         """
-        review = self.get_object()
-        moderation_service = ModerationService()
-        
-        # Валидируем данные
-        serializer = ReviewModerationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        action = serializer.validated_data['action']
-        comment = serializer.validated_data.get('comment', '')
-        
-        # Вызываем соответствующий метод модерации
-        if action == 'approve':
-            review, moderation_log = moderation_service.approve_review(
-                review, request.user, comment
-            )
-        elif action == 'soft_reject':
-            review, moderation_log = moderation_service.soft_reject_review(
-                review, request.user, comment
-            )
-        elif action == 'spam_block':
-            review, moderation_log = moderation_service.spam_block_review(
-                review, request.user, comment
-            )
-        else:
+        try:
+            review = self.get_object()
+            moderation_service = ModerationService()
+            
+            # Валидируем данные
+            serializer = ReviewModerationSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            action = serializer.validated_data['action']
+            comment = serializer.validated_data.get('comment', '')
+            
+            # Вызываем соответствующий метод модерации
+            if action == 'approve':
+                review, moderation_log = moderation_service.approve_review(
+                    review, request.user, comment
+                )
+                # Если отзыв одобрен и связан с POI - обновляем LLM рейтинг
+                if review.poi:
+                    from maps.tasks_ratings import update_poi_llm_rating
+                    update_poi_llm_rating.delay(review.poi.id)
+            elif action == 'soft_reject':
+                review, moderation_log = moderation_service.soft_reject_review(
+                    review, request.user, comment
+                )
+            elif action == 'spam_block':
+                review, moderation_log = moderation_service.spam_block_review(
+                    review, request.user, comment
+                )
+            else:
+                return Response(
+                    {'error': 'Неизвестное действие'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Сериализуем обновленный отзыв
+            review_serializer = ReviewSerializer(review)
+            return Response(review_serializer.data)
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.error(f'Ошибка при модерации отзыва {pk}: {str(e)}', exc_info=True)
+            error_message = str(e) if settings.DEBUG else 'Произошла ошибка при модерации отзыва'
             return Response(
-                {'error': 'Неизвестное действие'},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    'error': 'Не удалось обработать отзыв',
+                    'message': error_message
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-        # Сериализуем обновленный отзыв
-        review_serializer = ReviewSerializer(review)
-        return Response(review_serializer.data)
     
     @action(detail=False, methods=['get'], permission_classes=[IsAdminUser])
     def pending(self, request):

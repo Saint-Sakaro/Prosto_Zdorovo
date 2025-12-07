@@ -318,9 +318,14 @@ export const MapContainer: React.FC = () => {
             </div>
           </div>
         </div>
-        <div style="padding: 8px; background: #eff6ff; border-radius: 6px; text-align: center;">
+        <div style="padding: 8px; background: #eff6ff; border-radius: 6px; text-align: center; margin-bottom: 8px;">
           <span style="font-size: 12px; color: #3b82f6; font-weight: 500;">
             💡 Кликните на маркер для подробной информации
+          </span>
+        </div>
+        <div style="padding: 8px; background: #f0fdf4; border-radius: 6px; text-align: center;">
+          <span style="font-size: 12px; color: #16a34a; font-weight: 500;">
+            ✍️ Кликните на маркер, чтобы написать отзыв
           </span>
         </div>
       </div>
@@ -340,8 +345,6 @@ export const MapContainer: React.FC = () => {
     category: string;
     content: string;
     has_media: boolean;
-    // ⬇️ НОВЫЕ ОПЦИОНАЛЬНЫЕ ПОЛЯ
-    rating?: number;        // Оценка 1-5 (для poi_review)
     poi?: string;          // UUID POI (если известен)
   }) => {
     try {

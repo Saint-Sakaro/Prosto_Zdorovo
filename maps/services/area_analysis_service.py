@@ -107,13 +107,8 @@ class AreaAnalysisService:
         
         # Применяем фильтры по категориям
         if category_filters:
-            # Поддержка категорий без slug - фильтруем по slug или uuid
-            from django.db.models import Q
-            filter_conditions = Q()
-            for filter_slug in category_filters:
-                # Пробуем найти по slug или по uuid
-                filter_conditions |= Q(category__slug=filter_slug) | Q(category__uuid=filter_slug)
-            pois = pois.filter(filter_conditions)
+            # Фильтруем по UUID категорий (category_filters содержит UUID категорий)
+            pois = pois.filter(category__uuid__in=category_filters)
         
         # Рассчитываем индекс здоровья
         health_index = self.health_calculator.calculate_area_index(pois)
@@ -216,9 +211,9 @@ class AreaAnalysisService:
             moderation_status='approved'
         ).select_related('category', 'rating')
         
-        # Фильтруем по категориям если указаны
+        # Фильтруем по категориям если указаны (category_filters содержит UUID категорий)
         if category_filters:
-            pois = pois.filter(category__slug__in=category_filters)
+            pois = pois.filter(category__uuid__in=category_filters)
         
         # Фильтруем по радиусу
         # Для эффективности сначала применяем приблизительный фильтр по координатам

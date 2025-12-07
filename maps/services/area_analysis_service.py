@@ -337,11 +337,9 @@ class AreaAnalysisService:
             objects_list.append({
                 'uuid': str(poi.uuid),
                 'name': poi.name,
-                'category': {
-                    'slug': category_slug,
-                    'name': poi.category.name,
-                    'marker_color': getattr(poi.category, 'marker_color', '#3498db'),
-                },
+                'category_name': poi.category.name,
+                'category_uuid': str(poi.category.uuid),
+                'marker_color': getattr(poi.category, 'marker_color', '#3498db'),
                 'address': poi.address,
                 'latitude': float(poi.latitude),
                 'longitude': float(poi.longitude),

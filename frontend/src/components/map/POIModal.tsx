@@ -6,7 +6,6 @@ import { Button } from '../common/Button';
 import { Card } from '../common/Card';
 import { theme } from '../../theme';
 import { RatingDetails } from '../poi/RatingDetails';
-import { ratingsApi } from '../../api/maps';
 import { gamificationApi, Review } from '../../api/gamification';
 
 interface POIModalProps {

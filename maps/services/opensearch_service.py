@@ -101,6 +101,7 @@ class OpenSearchService:
                             'category_name': {'type': 'text'},
                             'health_score': {'type': 'float'},
                             'is_active': {'type': 'boolean'},
+                            'moderation_status': {'type': 'keyword'},  # Добавляем поле статуса модерации
                             'created_at': {'type': 'date'},
                         }
                     }
@@ -144,6 +145,7 @@ class OpenSearchService:
                 'category_name': poi.category.name if poi.category else '',
                 'health_score': float(poi.rating.health_score) if poi.rating else 50.0,
                 'is_active': poi.is_active,
+                'moderation_status': poi.moderation_status,  # Добавляем статус модерации
                 'created_at': poi.created_at.isoformat() if poi.created_at else None,
             }
             
@@ -231,10 +233,42 @@ class OpenSearchService:
                             'term': {
                                 'is_active': True
                             }
+                        },
+                        {
+                            'term': {
+                                'is_active': True
+                            }
+                        }
+                    ],
+                    'must_not': [
+                        {
+                            'exists': {
+                                'field': 'moderation_status'
+                            }
                         }
                     ]
                 }
             }
+            
+            # Фильтр по статусу модерации (если поле есть в документе)
+            # Используем should для поддержки старых документов без этого поля
+            query['bool']['should'] = [
+                {
+                    'term': {
+                        'moderation_status': 'approved'
+                    }
+                },
+                {
+                    'bool': {
+                        'must_not': {
+                            'exists': {
+                                'field': 'moderation_status'
+                            }
+                        }
+                    }
+                }
+            ]
+            query['bool']['minimum_should_match'] = 1
             
             # Добавляем фильтр по категориям если указаны
             if category_filters:
@@ -270,9 +304,20 @@ class OpenSearchService:
             
             # Формируем результат
             results = []
+            hits_total = response['hits']['total']
+            total_count = hits_total['value'] if isinstance(hits_total, dict) else hits_total
+            
+            logger.info(f'OpenSearch нашел {total_count} результатов, обрабатываем {len(response["hits"]["hits"])} документов')
+            
             for hit in response['hits']['hits']:
                 source = hit['_source']
                 distance = hit.get('sort', [None])[0]  # Расстояние из сортировки
+                
+                # Проверяем статус модерации (если поле есть в документе)
+                moderation_status = source.get('moderation_status', 'approved')
+                if moderation_status != 'approved':
+                    logger.debug(f'Пропускаем POI {source["uuid"]} со статусом {moderation_status}')
+                    continue
                 
                 results.append({
                     'uuid': source['uuid'],
@@ -286,10 +331,12 @@ class OpenSearchService:
                     'distance_meters': distance if distance is not None else 0.0,
                 })
             
+            logger.info(f'OpenSearch вернул {len(results)} одобренных POI после фильтрации')
             return results
             
         except Exception as e:
-            logger.error(f'Ошибка при поиске в радиусе: {str(e)}')
+            logger.error(f'Ошибка при поиске в радиусе через OpenSearch: {str(e)}', exc_info=True)
+            logger.info('Используем fallback на Django ORM')
             # Fallback на Django ORM
             return self._fallback_search_in_radius(center_lat, center_lon, radius_meters, category_filters)
     

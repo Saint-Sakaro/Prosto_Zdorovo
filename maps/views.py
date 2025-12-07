@@ -338,46 +338,83 @@ class AreaAnalysisView(APIView):
         Returns:
             Response с результатами анализа
         """
-        # Валидация запроса
-        request_serializer = AreaAnalysisRequestSerializer(data=request.data)
-        request_serializer.is_valid(raise_exception=True)
-        
-        validated_data = request_serializer.validated_data
-        analysis_type = validated_data.get('analysis_type', 'city')
-        category_filters = validated_data.get('category_filters', None)
-        
-        # Инициализация сервисов
-        analysis_service = AreaAnalysisService()
-        health_calculator = HealthIndexCalculator()
-        
-        # Выполнение анализа в зависимости от режима
-        if analysis_type == 'radius':
-            result = analysis_service.analyze_radius(
-                center_lat=validated_data['center_lat'],
-                center_lon=validated_data['center_lon'],
-                radius_meters=validated_data['radius_meters'],
-                category_filters=category_filters
+        try:
+            # Валидация запроса
+            request_serializer = AreaAnalysisRequestSerializer(data=request.data)
+            request_serializer.is_valid(raise_exception=True)
+            
+            validated_data = request_serializer.validated_data
+            analysis_type = validated_data.get('analysis_type', 'city')
+            category_filters = validated_data.get('category_filters', None)
+            
+            logger.info(f'Анализ области: type={analysis_type}, filters={category_filters}')
+            
+            # Инициализация сервисов
+            analysis_service = AreaAnalysisService()
+            health_calculator = HealthIndexCalculator()
+            
+            # Выполнение анализа в зависимости от режима
+            try:
+                if analysis_type == 'radius':
+                    result = analysis_service.analyze_radius(
+                        center_lat=validated_data['center_lat'],
+                        center_lon=validated_data['center_lon'],
+                        radius_meters=validated_data['radius_meters'],
+                        category_filters=category_filters
+                    )
+                else:  # city или street
+                    result = analysis_service.analyze_bounding_box(
+                        sw_lat=validated_data['sw_lat'],
+                        sw_lon=validated_data['sw_lon'],
+                        ne_lat=validated_data['ne_lat'],
+                        ne_lon=validated_data['ne_lon'],
+                        category_filters=category_filters,
+                        analysis_type=analysis_type
+                    )
+            except Exception as e:
+                logger.error(f'Ошибка при выполнении анализа области: {str(e)}', exc_info=True)
+                return Response(
+                    {
+                        'error': 'Ошибка при выполнении анализа области',
+                        'message': str(e) if settings.DEBUG else 'Не удалось выполнить анализ'
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # Добавляем текстовую интерпретацию
+            try:
+                result['health_interpretation'] = health_calculator.interpret_health_index(
+                    result['health_index']
+                )
+            except Exception as e:
+                logger.warning(f'Ошибка при интерпретации индекса здоровья: {str(e)}')
+                result['health_interpretation'] = 'Не удалось определить интерпретацию'
+            
+            # Сериализуем результат
+            try:
+                response_serializer = AreaAnalysisResponseSerializer(data=result)
+                response_serializer.is_valid(raise_exception=True)
+                return Response(response_serializer.validated_data, status=status.HTTP_200_OK)
+            except Exception as e:
+                logger.error(f'Ошибка при сериализации результата: {str(e)}', exc_info=True)
+                # Возвращаем результат без сериализации в случае ошибки
+                return Response(result, status=status.HTTP_200_OK)
+                
+        except drf_serializers.ValidationError as e:
+            logger.error(f'Ошибка валидации запроса анализа: {e.detail}')
+            return Response(
+                {'error': 'Ошибка валидации запроса', 'details': e.detail},
+                status=status.HTTP_400_BAD_REQUEST
             )
-        else:  # city или street
-            result = analysis_service.analyze_bounding_box(
-                sw_lat=validated_data['sw_lat'],
-                sw_lon=validated_data['sw_lon'],
-                ne_lat=validated_data['ne_lat'],
-                ne_lon=validated_data['ne_lon'],
-                category_filters=category_filters,
-                analysis_type=analysis_type
+        except Exception as e:
+            logger.error(f'Неожиданная ошибка при анализе области: {str(e)}', exc_info=True)
+            return Response(
+                {
+                    'error': 'Внутренняя ошибка сервера',
+                    'message': str(e) if settings.DEBUG else 'Произошла ошибка при обработке запроса'
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-        # Добавляем текстовую интерпретацию
-        result['health_interpretation'] = health_calculator.interpret_health_index(
-            result['health_index']
-        )
-        
-        # Сериализуем результат
-        response_serializer = AreaAnalysisResponseSerializer(data=result)
-        response_serializer.is_valid(raise_exception=True)
-        
-        return Response(response_serializer.validated_data, status=status.HTTP_200_OK)
 
 
 class GeocoderView(APIView):

@@ -9,10 +9,13 @@
 
 from django.db.models import Q, Count, Avg
 from geopy.distance import geodesic
+import logging
 from maps.models import POI, POICategory, POIRating
 from maps.services.health_index_calculator import HealthIndexCalculator
 from maps.services.geocoder_service import GeocoderService
 from maps.services.opensearch_service import OpenSearchService
+
+logger = logging.getLogger(__name__)
 
 
 class AreaAnalysisService:
@@ -159,23 +162,47 @@ class AreaAnalysisService:
         """
         # Используем OpenSearch для точного поиска
         if self.opensearch.enabled:
-            search_results = self.opensearch.search_in_radius(
-                float(center_lat),
-                float(center_lon),
-                float(radius_meters),
-                category_filters
-            )
-            
-            # Получаем UUID из результатов
-            poi_uuids = [result['uuid'] for result in search_results]
-            
-            # Возвращаем QuerySet с POI по UUID
-            return POI.objects.filter(
-                uuid__in=poi_uuids,
-                is_active=True
-            ).select_related('category', 'rating')
+            try:
+                search_results = self.opensearch.search_in_radius(
+                    float(center_lat),
+                    float(center_lon),
+                    float(radius_meters),
+                    category_filters
+                )
+                
+                logger.info(f'OpenSearch нашел {len(search_results)} POI в радиусе {radius_meters}м от ({center_lat}, {center_lon})')
+                
+                if not search_results:
+                    logger.warning('OpenSearch вернул пустой результат, проверяем индексацию')
+                    # Проверяем, есть ли вообще POI в индексе
+                    # Если нет - используем fallback
+                    return self._get_pois_in_radius_fallback(center_lat, center_lon, radius_meters, category_filters)
+                
+                # Получаем UUID из результатов
+                poi_uuids = [result['uuid'] for result in search_results]
+                
+                # Возвращаем QuerySet с POI по UUID
+                # Дополнительно фильтруем по статусу модерации на случай если в OpenSearch не все индексировано
+                pois = POI.objects.filter(
+                    uuid__in=poi_uuids,
+                    is_active=True,
+                    moderation_status='approved'
+                ).select_related('category', 'rating')
+                
+                logger.info(f'Найдено {pois.count()} активных одобренных POI из {len(poi_uuids)} результатов OpenSearch')
+                return pois
+            except Exception as e:
+                logger.error(f'Ошибка при использовании OpenSearch для поиска в радиусе: {str(e)}', exc_info=True)
+                # Fallback на Django ORM
+                return self._get_pois_in_radius_fallback(center_lat, center_lon, radius_meters, category_filters)
         
         # Fallback на старый метод если OpenSearch недоступен
+        return self._get_pois_in_radius_fallback(center_lat, center_lon, radius_meters, category_filters)
+    
+    def _get_pois_in_radius_fallback(self, center_lat, center_lon, radius_meters, category_filters=None):
+        """
+        Fallback метод для поиска POI в радиусе через Django ORM
+        """
         # Получаем все активные POI
         # Показываем только активные и одобренные места
         pois = POI.objects.filter(

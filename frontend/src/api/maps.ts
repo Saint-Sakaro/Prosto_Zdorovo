@@ -131,11 +131,12 @@ export interface ReverseGeocodeResponse {
 
 export interface FormField {
   id: string;
-  type: 'boolean' | 'range' | 'select' | 'photo';
+  type: 'boolean' | 'range' | 'select' | 'photo' | 'text';
   label: string;
   description?: string;
   direction: 1 | -1;  // +1 полезный, -1 вредный
   weight: number;
+  required?: boolean;  // Обязательное поле
   scale_min?: number;  // для range
   scale_max?: number;  // для range
   options?: string[];  // для select

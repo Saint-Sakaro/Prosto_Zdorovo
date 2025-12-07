@@ -19,6 +19,11 @@ import { Achievements } from './pages/Achievements';
 import { Moderation } from './pages/Moderation';
 import { Map } from './pages/Map';
 import { AdminSchemas } from './pages/AdminSchemas';
+import { CreatePlacePage } from './pages/CreatePlace';
+import { MySubmissionsPage } from './pages/MySubmissions';
+import { PlaceModerationPage } from './pages/PlaceModeration';
+import { BulkUploadPage } from './pages/BulkUploadPage';
+import { CategoriesManagementPage } from './pages/CategoriesManagementPage';
 
 function App() {
   return (
@@ -95,6 +100,46 @@ function App() {
                   <ProtectedRoute>
                     <Map />
                   </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/places/create"
+                element={
+                  <ProtectedRoute>
+                    <CreatePlacePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/places/my-submissions"
+                element={
+                  <ProtectedRoute>
+                    <MySubmissionsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/places/moderation"
+                element={
+                  <AdminRoute>
+                    <PlaceModerationPage />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/places/bulk-upload"
+                element={
+                  <AdminRoute>
+                    <BulkUploadPage />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/places/categories"
+                element={
+                  <AdminRoute>
+                    <CategoriesManagementPage />
+                  </AdminRoute>
                 }
               />
             </Routes>

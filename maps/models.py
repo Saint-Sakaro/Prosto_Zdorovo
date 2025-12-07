@@ -433,6 +433,69 @@ class POI(models.Model):
         verbose_name='Дата верификации'
     )
     
+    # Поля для модерации
+    MODERATION_STATUS_CHOICES = [
+        ('pending', 'Ожидает модерации'),
+        ('approved', 'Одобрено'),
+        ('rejected', 'Отклонено'),
+        ('changes_requested', 'Требуются изменения'),
+    ]
+    
+    moderation_status = models.CharField(
+        max_length=20,
+        choices=MODERATION_STATUS_CHOICES,
+        default='approved',  # Для существующих записей
+        verbose_name='Статус модерации'
+    )
+    
+    submitted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='submitted_pois',
+        verbose_name='Создал'
+    )
+    
+    moderated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='moderated_pois',
+        verbose_name='Модератор'
+    )
+    
+    moderated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Дата модерации'
+    )
+    
+    moderation_comment = models.TextField(
+        blank=True,
+        verbose_name='Комментарий модератора'
+    )
+    
+    # Поле для вердикта LLM
+    llm_verdict = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='Вердикт LLM'
+    )
+    # Структура llm_verdict:
+    # {
+    #   "verdict": "approve|reject|review",
+    #   "confidence": 0.0-1.0,
+    #   "comment": "Текст комментария от LLM",
+    #   "checked_at": "2024-01-01T00:00:00Z",
+    #   "analysis": {
+    #     "field_quality": "good|medium|poor",
+    #     "health_impact": "positive|neutral|negative",
+    #     "data_completeness": 0.0-1.0
+    #   }
+    # }
+    
     # Активен ли объект
     is_active = models.BooleanField(
         default=True,

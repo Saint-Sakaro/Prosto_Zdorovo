@@ -88,7 +88,7 @@ WSGI_APPLICATION = 'health_map.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 # Используем SQLite для тестирования, если PostgreSQL недоступен
-USE_SQLITE = env.bool('USE_SQLITE', default=False)
+USE_SQLITE = env.bool('USE_SQLITE', default=True)
 if USE_SQLITE:
     DATABASES = {
         'default': {

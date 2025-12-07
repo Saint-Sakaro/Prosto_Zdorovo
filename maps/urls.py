@@ -14,6 +14,9 @@ router = DefaultRouter()
 # Регистрация ViewSets
 router.register(r'pois', views.POIViewSet, basename='poi')
 router.register(r'categories', views.POICategoryViewSet, basename='poi-category')
+router.register(r'pois/submissions', views.POISubmissionViewSet, basename='poi-submission')
+# Алиас для совместимости с фронтендом
+router.register(r'pois/submit', views.POISubmissionViewSet, basename='poi-submit')
 
 urlpatterns = [
     # Подключение всех маршрутов из роутера
@@ -25,6 +28,9 @@ urlpatterns = [
     # Геокодирование
     path('geocode/', views.GeocoderView.as_view(), name='geocode'),
     path('reverse-geocode/', views.ReverseGeocoderView.as_view(), name='reverse-geocode'),
+    
+    # Массовая загрузка POI
+    path('pois/bulk-upload/', views.BulkUploadPOIView.as_view(), name='bulk-upload-poi'),
     
     # Анкеты и рейтинги
     path('ratings/', include('maps.urls_ratings')),

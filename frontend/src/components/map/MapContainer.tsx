@@ -1006,30 +1006,6 @@ export const MapContainer: React.FC = () => {
             onClose={() => setAnalysisResult(null)}
           />
         )}
-
-        <div style={{ marginTop: 'auto', paddingTop: theme.spacing.lg }}>
-          <Card padding={theme.spacing.md}>
-            <Button
-              variant="primary"
-              fullWidth
-              onClick={() => {
-                // Открываем модальное окно создания POI
-                // Координаты будут установлены при клике на карту
-                setIsCreatePOIOpen(true);
-              }}
-            >
-              ➕ Добавить объект на карту
-            </Button>
-            <div style={{ 
-              marginTop: theme.spacing.xs, 
-              fontSize: theme.typography.fontSize.xs, 
-              color: theme.colors.text.muted,
-              textAlign: 'center'
-            }}>
-              Или кликните правой кнопкой на карте
-            </div>
-          </Card>
-        </div>
       </MapSidebar>
 
       <MapContainerDiv>

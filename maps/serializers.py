@@ -8,7 +8,9 @@ Serializers для REST API модуля карт
 """
 
 from rest_framework import serializers
-from maps.models import POI, POICategory, POIRating, AreaAnalysis
+from maps.models import POI, POICategory, POIRating, AreaAnalysis, FormSchema
+from maps.services.form_validator import FormValidator
+from maps.services.infrastructure_score_calculator import InfrastructureScoreCalculator
 
 
 class POICategorySerializer(serializers.ModelSerializer):
@@ -246,4 +248,133 @@ class AreaAnalysisResponseSerializer(serializers.Serializer):
     area_params = serializers.DictField(
         help_text='Параметры анализируемой области'
     )
+
+
+class POISubmissionSerializer(serializers.Serializer):
+    """
+    Serializer для создания заявки на место
+    
+    Используется для ручного создания места пользователем
+    """
+    name = serializers.CharField(max_length=500, required=True)
+    address = serializers.CharField(max_length=500, required=True)
+    latitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=True)
+    longitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=True)
+    category_slug = serializers.SlugField(required=True)
+    form_data = serializers.JSONField(required=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    
+    def validate_category_slug(self, value):
+        """
+        Проверить существование категории
+        
+        Args:
+            value: Slug категории
+            
+        Returns:
+            str: Slug категории
+            
+        Raises:
+            serializers.ValidationError: Если категория не найдена
+        """
+        try:
+            category = POICategory.objects.get(slug=value, is_active=True)
+        except POICategory.DoesNotExist:
+            raise serializers.ValidationError(f'Категория с slug "{value}" не найдена или неактивна')
+        return value
+    
+    def validate_form_data(self, value):
+        """
+        Валидировать данные формы на основе схемы категории
+        
+        Args:
+            value: Данные формы (dict)
+            
+        Returns:
+            dict: Валидированные данные формы
+            
+        Raises:
+            serializers.ValidationError: Если данные не валидны
+        """
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('form_data должен быть словарем')
+        
+        # Получаем категорию из контекста (должна быть уже проверена в validate_category_slug)
+        category_slug = self.initial_data.get('category_slug')
+        if not category_slug:
+            return value  # Пропускаем валидацию, если категория не указана
+        
+        try:
+            category = POICategory.objects.get(slug=category_slug, is_active=True)
+        except POICategory.DoesNotExist:
+            return value  # Пропускаем валидацию, если категория не найдена
+        
+        # Получаем схему формы категории
+        try:
+            form_schema = category.form_schema
+        except FormSchema.DoesNotExist:
+            # Если схемы нет, принимаем любые данные
+            return value
+        
+        # Валидируем через FormValidator
+        validator = FormValidator(form_schema)
+        is_valid, errors = validator.validate(value)
+        
+        if not is_valid:
+            raise serializers.ValidationError({
+                'form_data': errors
+            })
+        
+        return value
+    
+    def create(self, validated_data):
+        """
+        Создать POI со статусом pending
+        
+        Args:
+            validated_data: Валидированные данные
+            
+        Returns:
+            POI: Созданный объект
+        """
+        # Получаем категорию
+        category_slug = validated_data.pop('category_slug')
+        category = POICategory.objects.get(slug=category_slug, is_active=True)
+        
+        # Получаем схему формы (если есть)
+        form_schema = None
+        try:
+            form_schema = category.form_schema
+        except FormSchema.DoesNotExist:
+            pass
+        
+        # Получаем пользователя из контекста
+        user = self.context['request'].user
+        
+        # Извлекаем form_data
+        form_data = validated_data.pop('form_data', {})
+        
+        # Создаем POI со статусом pending
+        poi = POI.objects.create(
+            category=category,
+            form_schema=form_schema,
+            form_data=form_data,
+            submitted_by=user,
+            moderation_status='pending',
+            is_active=False,  # Неактивен до модерации
+            **validated_data
+        )
+        
+        # Рассчитываем начальный S_infra (для предпросмотра)
+        if form_schema and form_data:
+            infra_calculator = InfrastructureScoreCalculator()
+            try:
+                # Сохраняем предварительный расчет в метаданные (не создаем POIRating до модерации)
+                poi.metadata = poi.metadata or {}
+                poi.metadata['preliminary_s_infra'] = infra_calculator.calculate_infra_score(poi)
+                poi.save(update_fields=['metadata'])
+            except Exception:
+                pass  # Игнорируем ошибки расчета на этапе создания
+        
+        return poi
 

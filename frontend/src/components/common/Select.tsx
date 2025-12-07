@@ -28,7 +28,7 @@ const SelectWrapper = styled.div.withConfig({
   flex-direction: column;
   gap: ${({ theme }) => theme.spacing.xs};
   position: relative;
-  z-index: 1;
+  z-index: 10;
 `;
 
 const Label = styled.label`
@@ -95,7 +95,7 @@ const Dropdown = styled(motion.div)<{ top: number; left: number; width: number }
   top: ${({ top }) => top}px;
   left: ${({ left }) => left}px;
   width: ${({ width }) => width}px;
-  z-index: 9999;
+  z-index: 10000;
   background: ${({ theme }) => theme.colors.background.card};
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -161,7 +161,7 @@ const Overlay = styled(motion.div)`
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 9998;
+  z-index: 9999;
   background: transparent;
 `;
 

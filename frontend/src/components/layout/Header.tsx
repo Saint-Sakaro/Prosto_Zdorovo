@@ -189,6 +189,12 @@ export const Header: React.FC = () => {
               <NavLink to="/map" active={isActive('/map')}>
                 Карта
               </NavLink>
+              <NavLink to="/places/create" active={isActive('/places/create')}>
+                Создать место
+              </NavLink>
+              <NavLink to="/places/my-submissions" active={isActive('/places/my-submissions')}>
+                Мои заявки
+              </NavLink>
               <NavLink to="/rewards" active={isActive('/rewards')}>
                 Награды
               </NavLink>
@@ -196,9 +202,17 @@ export const Header: React.FC = () => {
                 Достижения
               </NavLink>
               {isAdmin && (
-                <NavLink to="/moderation" active={isActive('/moderation')}>
-                  Модерация
-                </NavLink>
+                <>
+                  <NavLink to="/moderation" active={isActive('/moderation')}>
+                    Модерация
+                  </NavLink>
+                  <NavLink to="/places/bulk-upload" active={isActive('/places/bulk-upload')}>
+                    Массовая загрузка
+                  </NavLink>
+                  <NavLink to="/places/categories" active={isActive('/places/categories')}>
+                    Категории
+                  </NavLink>
+                </>
               )}
             </>
           )}

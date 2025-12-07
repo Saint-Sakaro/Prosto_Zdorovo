@@ -267,10 +267,12 @@ export const ReviewForm: React.FC<ReviewFormProps> = ({
 
   return (
     <FormCard glow>
-      <FormTitle>Создать отзыв</FormTitle>
+      <FormTitle>Написать отзыв</FormTitle>
       <Form onSubmit={handleSubmit}>
         {error && <ErrorMessage>{error}</ErrorMessage>}
 
+        {/* Селектор типа отзыва скрыт, если предустановлен тип */}
+        {!initialReviewType && (
         <TypeSelector>
           <TypeButton
             type="button"
@@ -307,39 +309,45 @@ export const ReviewForm: React.FC<ReviewFormProps> = ({
             <TypeLabel>Инцидент</TypeLabel>
           </TypeButton>
         </TypeSelector>
+        )}
 
-        <CoordinatesRow>
-          <Input
-            label="Широта"
-            type="number"
-            step="any"
-            value={latitude}
-            onChange={(e) => setLatitude(e.target.value)}
-            placeholder="55.7558"
+        {/* Координаты и категория скрыты, если предзаполнены из POI */}
+        {(!initialData?.latitude || !initialData?.longitude) && (
+          <CoordinatesRow>
+            <Input
+              label="Широта"
+              type="number"
+              step="any"
+              value={latitude}
+              onChange={(e) => setLatitude(e.target.value)}
+              placeholder="55.7558"
+              required
+            />
+            <Input
+              label="Долгота"
+              type="number"
+              step="any"
+              value={longitude}
+              onChange={(e) => setLongitude(e.target.value)}
+              placeholder="37.6173"
+              required
+            />
+          </CoordinatesRow>
+        )}
+
+        {!initialCategory && (
+          <Select
+            label="Категория"
+            value={category}
+            onChange={setCategory}
+            options={[
+              { value: '', label: 'Выберите категорию' },
+              ...currentCategories.map((cat) => ({ value: cat, label: cat })),
+            ]}
+            placeholder="Выберите категорию"
             required
           />
-          <Input
-            label="Долгота"
-            type="number"
-            step="any"
-            value={longitude}
-            onChange={(e) => setLongitude(e.target.value)}
-            placeholder="37.6173"
-            required
-          />
-        </CoordinatesRow>
-
-        <Select
-          label="Категория"
-          value={category}
-          onChange={setCategory}
-          options={[
-            { value: '', label: 'Выберите категорию' },
-            ...currentCategories.map((cat) => ({ value: cat, label: cat })),
-          ]}
-          placeholder="Выберите категорию"
-          required
-        />
+        )}
 
         <div>
           <label

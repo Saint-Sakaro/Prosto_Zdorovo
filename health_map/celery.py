@@ -38,5 +38,15 @@ app.conf.beat_schedule = {
         'task': 'gamification.tasks.cleanup_old_transactions',
         'schedule': crontab(hour=3, minute=0, day_of_week=0),  # Каждое воскресенье в 3:00
     },
+    # Задачи для пересчета рейтингов
+    'recalculate-time-decay': {
+        'task': 'maps.tasks_ratings.recalculate_time_decay',
+        'schedule': crontab(hour=4, minute=0),  # Каждый день в 4:00 для обновления time decay
+    },
+    # Опционально: полный пересчет рейтингов (можно запускать вручную или по расписанию)
+    # 'recalculate-all-ratings': {
+    #     'task': 'maps.tasks_ratings.recalculate_all_ratings',
+    #     'schedule': crontab(hour=5, minute=0, day_of_week=0),  # Каждое воскресенье в 5:00
+    # },
 }
 

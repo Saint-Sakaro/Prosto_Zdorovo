@@ -22,7 +22,9 @@ const Table = styled.table`
   border-spacing: 0 ${({ theme }) => theme.spacing.sm};
 `;
 
-const TableRow = styled(motion.tr)<{ isCurrentUser?: boolean; rank: number }>`
+const TableRow = styled(motion.tr).withConfig({
+  shouldForwardProp: (prop) => !['isCurrentUser', 'rank'].includes(prop),
+})<{ isCurrentUser?: boolean; rank: number }>`
   background: ${({ theme, isCurrentUser }) =>
     isCurrentUser
       ? 'rgba(0, 217, 165, 0.1)'
@@ -74,7 +76,9 @@ const TableCell = styled.td`
   vertical-align: middle;
 `;
 
-const RankCell = styled(TableCell)<{ rank: number }>`
+const RankCell = styled(TableCell).withConfig({
+  shouldForwardProp: (prop) => !['rank'].includes(prop),
+})<{ rank: number }>`
   text-align: center;
   font-weight: ${({ theme }) => theme.typography.fontWeight.bold};
   font-size: ${({ theme }) => theme.typography.fontSize.xl};
@@ -109,7 +113,9 @@ const UserCell = styled(TableCell)`
   gap: ${({ theme }) => theme.spacing.md};
 `;
 
-const Avatar = styled.div<{ rank: number }>`
+const Avatar = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['rank'].includes(prop),
+})<{ rank: number }>`
   width: 50px;
   height: 50px;
   border-radius: ${({ theme }) => theme.borderRadius.full};
@@ -192,7 +198,9 @@ const UserInfo = styled.div`
   gap: ${({ theme }) => theme.spacing.xs};
 `;
 
-const Username = styled.div<{ isCurrentUser?: boolean }>`
+const Username = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['isCurrentUser'].includes(prop),
+})<{ isCurrentUser?: boolean }>`
   font-size: ${({ theme }) => theme.typography.fontSize.base};
   font-weight: ${({ theme, isCurrentUser }) =>
     isCurrentUser
@@ -227,7 +235,9 @@ const ReputationValue = styled.span<{ type: string }>`
   background-clip: text;
 `;
 
-const MedalIcon = styled.span<{ rank: number }>`
+const MedalIcon = styled.span.withConfig({
+  shouldForwardProp: (prop) => !['rank'].includes(prop),
+})<{ rank: number }>`
   font-size: ${({ theme }) => theme.typography.fontSize['2xl']};
   ${({ rank }) => {
     if (rank === 1) return 'content: "🥇";';

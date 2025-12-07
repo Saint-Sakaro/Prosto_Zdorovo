@@ -40,6 +40,11 @@ export interface Review {
   moderation_comment: string;
   created_at: string;
   updated_at: string;
+  // ⬇️ НОВЫЕ ПОЛЯ
+  rating?: number | null;              // Оценка отзыва (1-5)
+  poi?: string | null;                 // UUID POI (если есть связь)
+  sentiment_score?: number | null;     // Сентимент от LLM (-1 до 1)
+  extracted_facts?: Record<string, any>; // Извлеченные факты от LLM
 }
 
 export interface LeaderboardEntry {
@@ -168,6 +173,9 @@ export const gamificationApi = {
     category: string;
     content: string;
     has_media: boolean;
+    // ⬇️ НОВЫЕ ОПЦИОНАЛЬНЫЕ ПОЛЯ
+    rating?: number;        // Оценка 1-5 (для poi_review)
+    poi?: string;          // UUID POI (если известен)
   }): Promise<Review> => {
     const response = await apiClient.post('/gamification/reviews/', reviewData);
     return response.data;

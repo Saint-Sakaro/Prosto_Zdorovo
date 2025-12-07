@@ -243,6 +243,12 @@ GAMIFICATION_CONFIG = {
 # Яндекс Geocoder API настройки
 YANDEX_GEOCODER_API_KEY = env('YANDEX_GEOCODER_API_KEY', default=None)
 
+# GIGACHAT LLM настройки (для генерации анкет и анализа отзывов)
+GIGACHAT_CLIENT_ID = env('GIGACHAT_CLIENT_ID', default=None)
+GIGACHAT_CLIENT_SECRET = env('GIGACHAT_CLIENT_SECRET', default=None)
+GIGACHAT_SCOPE = env('GIGACHAT_SCOPE', default='GIGACHAT_API_PERS')
+GIGACHAT_MODEL = env('GIGACHAT_MODEL', default='GigaChat')
+
 # OpenSearch настройки (для точных геопространственных запросов)
 OPENSEARCH_HOST = env('OPENSEARCH_HOST', default='localhost')
 OPENSEARCH_PORT = env.int('OPENSEARCH_PORT', default=9200)

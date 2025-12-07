@@ -8,7 +8,9 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   fullWidth?: boolean;
 }
 
-const InputWrapper = styled.div<{ fullWidth?: boolean }>`
+const InputWrapper = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['fullWidth'].includes(prop),
+})<{ fullWidth?: boolean }>`
   width: ${({ fullWidth }) => (fullWidth ? '100%' : 'auto')};
   display: flex;
   flex-direction: column;
@@ -21,7 +23,9 @@ const Label = styled.label`
   color: ${({ theme }) => theme.colors.text.secondary};
 `;
 
-const StyledInput = styled.input<{ hasError?: boolean }>`
+const StyledInput = styled.input.withConfig({
+  shouldForwardProp: (prop) => !['hasError'].includes(prop),
+})<{ hasError?: boolean }>`
   width: 100%;
   padding: ${({ theme }) => theme.spacing.md};
   background: ${({ theme }) => theme.colors.background.card};

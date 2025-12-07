@@ -14,7 +14,7 @@
 
 from django.db import models
 from django.contrib.auth.models import User
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator
 import uuid
 
 
@@ -238,6 +238,38 @@ class Review(models.Model):
     moderation_comment = models.TextField(
         blank=True,
         verbose_name='Комментарий модератора'
+    )
+    
+    # Оценка отзыва (1-5)
+    rating = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        verbose_name='Оценка (1-5)'
+    )
+    
+    # Прямая связь с POI (опционально, для оптимизации)
+    poi = models.ForeignKey(
+        'maps.POI',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviews',
+        verbose_name='Объект POI'
+    )
+    
+    # Результаты LLM анализа
+    sentiment_score = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(-1.0), MaxValueValidator(1.0)],
+        verbose_name='Сентимент (LLM)'
+    )
+    
+    extracted_facts = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='Извлеченные факты (LLM)'
     )
     
     created_at = models.DateTimeField(

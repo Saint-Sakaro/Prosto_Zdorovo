@@ -9,8 +9,10 @@ import { AnalysisPanel } from './AnalysisPanel';
 import { AnalysisResults } from './AnalysisResults';
 import { MapSidebar } from './MapSidebar';
 import { ReviewFormModal } from './ReviewFormModal';
+import { CreatePOIModal } from './CreatePOIModal';
 import { ZOOM_THRESHOLDS } from '../../types/maps';
 import { Card } from '../common/Card';
+import { Button } from '../common/Button';
 import { theme } from '../../theme';
 
 declare global {
@@ -94,6 +96,8 @@ export const MapContainer: React.FC = () => {
   const [selectedPOIDetails, setSelectedPOIDetails] = useState<POIDetails | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isReviewFormOpen, setIsReviewFormOpen] = useState(false);
+  const [isCreatePOIOpen, setIsCreatePOIOpen] = useState(false);
+  const [createPOICoordinates, setCreatePOICoordinates] = useState<[number, number] | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const mapRef = useRef<any>(null);
   
@@ -336,6 +340,9 @@ export const MapContainer: React.FC = () => {
     category: string;
     content: string;
     has_media: boolean;
+    // ⬇️ НОВЫЕ ОПЦИОНАЛЬНЫЕ ПОЛЯ
+    rating?: number;        // Оценка 1-5 (для poi_review)
+    poi?: string;          // UUID POI (если известен)
   }) => {
     try {
       await gamificationApi.createReview(data);
@@ -693,6 +700,38 @@ export const MapContainer: React.FC = () => {
     }
   }, [currentZoom, getAreaBounds, generateApproximatePolygon]);
 
+  // Обработчик правого клика для создания POI
+  const handleMapRightClick = useCallback((e: any) => {
+    e.preventDefault();
+    try {
+      const coords = e.get('coords');
+      console.log('Map right-clicked, coords:', coords);
+      
+      if (coords && Array.isArray(coords) && coords.length === 2) {
+        const lat = coords[0];
+        const lon = coords[1];
+        
+        // Проверяем, что это валидные координаты
+        let finalLat: number;
+        let finalLon: number;
+        
+        if (lat >= 50 && lat <= 60 && lon >= 30 && lon <= 40) {
+          finalLat = lat;
+          finalLon = lon;
+        } else {
+          finalLat = lon;
+          finalLon = lat;
+        }
+        
+        // Открываем модальное окно создания POI
+        setCreatePOICoordinates([finalLat, finalLon]);
+        setIsCreatePOIOpen(true);
+      }
+    } catch (err) {
+      console.error('Error handling map right click:', err);
+    }
+  }, []);
+
   // Обработчик клика на карту для выбора центра анализа
   const handleMapClick = useCallback((e: any) => {
     try {
@@ -967,6 +1006,30 @@ export const MapContainer: React.FC = () => {
             onClose={() => setAnalysisResult(null)}
           />
         )}
+
+        <div style={{ marginTop: 'auto', paddingTop: theme.spacing.lg }}>
+          <Card padding={theme.spacing.md}>
+            <Button
+              variant="primary"
+              fullWidth
+              onClick={() => {
+                // Открываем модальное окно создания POI
+                // Координаты будут установлены при клике на карту
+                setIsCreatePOIOpen(true);
+              }}
+            >
+              ➕ Добавить объект на карту
+            </Button>
+            <div style={{ 
+              marginTop: theme.spacing.xs, 
+              fontSize: theme.typography.fontSize.xs, 
+              color: theme.colors.text.muted,
+              textAlign: 'center'
+            }}>
+              Или кликните правой кнопкой на карте
+            </div>
+          </Card>
+        </div>
       </MapSidebar>
 
       <MapContainerDiv>
@@ -1110,6 +1173,43 @@ export const MapContainer: React.FC = () => {
           setIsReviewFormOpen(false);
         }}
         onSubmit={handleReviewSubmit}
+      />
+
+      <CreatePOIModal
+        isOpen={isCreatePOIOpen}
+        onClose={() => {
+          setIsCreatePOIOpen(false);
+          setCreatePOICoordinates(null);
+        }}
+        onSave={async (poiData) => {
+          try {
+            const newPOI = await mapsApi.createPOI(poiData);
+            console.log('✅ POI created:', newPOI);
+            
+            // Обновляем список POI
+            if (mapRef.current) {
+              const bounds = mapRef.current.getBounds();
+              if (bounds && Array.isArray(bounds) && bounds.length === 2) {
+                const sw = bounds[0];
+                const ne = bounds[1];
+                if (sw && ne && Array.isArray(sw) && Array.isArray(ne)) {
+                  loadPOIs({
+                    sw_lat: sw[0],
+                    sw_lon: sw[1],
+                    ne_lat: ne[0],
+                    ne_lon: ne[1],
+                  });
+                }
+              }
+            }
+            
+            setIsCreatePOIOpen(false);
+            setCreatePOICoordinates(null);
+          } catch (error) {
+            throw error;
+          }
+        }}
+        initialCoordinates={createPOICoordinates || undefined}
       />
     </MapWrapper>
   );

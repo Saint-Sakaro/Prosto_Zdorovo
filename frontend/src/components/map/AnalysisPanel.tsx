@@ -47,18 +47,20 @@ const ModeTabs = styled.div`
   border: 1px solid ${({ theme }) => theme.colors.border.main};
 `;
 
-const TabButton = styled.button<{ active: boolean }>`
+const TabButton = styled.button.withConfig({
+  shouldForwardProp: (prop) => !['$active'].includes(prop),
+})<{ $active: boolean }>`
   flex: 1;
   padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
-  background: ${({ theme, active }) =>
-    active ? theme.colors.primary.main : 'transparent'};
-  color: ${({ theme, active }) =>
-    active ? '#FFFFFF' : theme.colors.text.secondary};
+  background: ${({ theme, $active }) =>
+    $active ? theme.colors.primary.main : 'transparent'};
+  color: ${({ theme, $active }) =>
+    $active ? '#FFFFFF' : theme.colors.text.secondary};
   border: none;
   border-radius: ${({ theme }) => theme.borderRadius.md};
   font-size: ${({ theme }) => theme.typography.fontSize.sm};
-  font-weight: ${({ theme, active }) =>
-    active
+  font-weight: ${({ theme, $active }) =>
+    $active
       ? theme.typography.fontWeight.semibold
       : theme.typography.fontWeight.medium};
   cursor: pointer;
@@ -69,12 +71,12 @@ const TabButton = styled.button<{ active: boolean }>`
   gap: ${({ theme }) => theme.spacing.xs};
 
   &:hover {
-    background: ${({ theme, active }) =>
-      active
+    background: ${({ theme, $active }) =>
+      $active
         ? theme.colors.primary.main
         : theme.colors.background.card};
-    color: ${({ theme, active }) =>
-      active ? '#FFFFFF' : theme.colors.text.primary};
+    color: ${({ theme, $active }) =>
+      $active ? '#FFFFFF' : theme.colors.text.primary};
   }
 
   @media (max-width: 480px) {
@@ -297,14 +299,14 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
 
       <ModeTabs>
         <TabButton
-          active={activeMode === 'area'}
+          $active={activeMode === 'area'}
           onClick={() => onModeChange('area')}
         >
           <span>🏙️</span>
           <span>Область</span>
         </TabButton>
         <TabButton
-          active={activeMode === 'radius'}
+          $active={activeMode === 'radius'}
           onClick={() => onModeChange('radius')}
         >
           <span>📍</span>

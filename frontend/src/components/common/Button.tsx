@@ -16,7 +16,9 @@ interface ButtonProps {
   as?: React.ElementType;
 }
 
-const StyledButton = styled(motion.button)<ButtonProps>`
+const StyledButton = styled(motion.button).withConfig({
+  shouldForwardProp: (prop) => !['fullWidth'].includes(prop),
+})<ButtonProps>`
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -131,7 +133,7 @@ export const Button: React.FC<ButtonProps> = ({
   to,
   ...props
 }) => {
-  const motionProps = {
+  const motionProps = to ? {} : {
     whileHover: { scale: disabled ? 1 : 1.02 },
     whileTap: { scale: disabled ? 1 : 0.98 },
   };
@@ -146,7 +148,6 @@ export const Button: React.FC<ButtonProps> = ({
         fullWidth={fullWidth}
         onClick={onClick}
         disabled={disabled}
-        {...motionProps}
         {...props}
       >
         {children}

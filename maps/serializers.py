@@ -40,11 +40,12 @@ class POIRatingSerializer(serializers.ModelSerializer):
     class Meta:
         model = POIRating
         fields = [
-            'uuid', 'health_score', 'reviews_count',
-            'approved_reviews_count', 'average_user_rating',
-            'last_calculated_at',
+            'uuid', 'health_score', 'S_infra', 'S_social', 'S_HIS',
+            'reviews_count', 'approved_reviews_count', 'average_user_rating',
+            'last_calculated_at', 'last_infra_calculation', 'last_social_calculation',
+            'calculation_metadata',
         ]
-        read_only_fields = ['uuid', 'last_calculated_at']
+        read_only_fields = ['uuid', 'last_calculated_at', 'last_infra_calculation', 'last_social_calculation']
 
 
 class POISerializer(serializers.ModelSerializer):
@@ -62,7 +63,7 @@ class POISerializer(serializers.ModelSerializer):
         queryset=POICategory.objects.filter(is_active=True),
         slug_field='slug',
         write_only=True,
-        required=False
+        required=True
     )
     rating = POIRatingSerializer(read_only=True)
     
@@ -73,6 +74,7 @@ class POISerializer(serializers.ModelSerializer):
             'address', 'latitude', 'longitude',
             'description', 'phone', 'website', 'email',
             'working_hours', 'rating', 'is_active',
+            'form_data', 'verified', 'verified_by', 'verified_at',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['uuid', 'created_at', 'updated_at', 'is_geocoded', 'geocoded_at']

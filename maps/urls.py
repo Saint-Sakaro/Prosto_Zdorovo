@@ -25,5 +25,8 @@ urlpatterns = [
     # Геокодирование
     path('geocode/', views.GeocoderView.as_view(), name='geocode'),
     path('reverse-geocode/', views.ReverseGeocoderView.as_view(), name='reverse-geocode'),
+    
+    # Анкеты и рейтинги
+    path('ratings/', include('maps.urls_ratings')),
 ]
 

@@ -70,7 +70,9 @@ const Nav = styled.nav`
   }
 `;
 
-const NavLink = styled(Link)<{ active?: boolean }>`
+const NavLink = styled(Link).withConfig({
+  shouldForwardProp: (prop) => !['active'].includes(prop),
+})<{ active?: boolean }>`
   padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
   color: ${({ active, theme }) =>
     active ? theme.colors.primary.main : theme.colors.text.secondary};
@@ -186,9 +188,6 @@ export const Header: React.FC = () => {
             <>
               <NavLink to="/map" active={isActive('/map')}>
                 Карта
-              </NavLink>
-              <NavLink to="/reviews" active={isActive('/reviews')}>
-                Отзывы
               </NavLink>
               <NavLink to="/rewards" active={isActive('/rewards')}>
                 Награды

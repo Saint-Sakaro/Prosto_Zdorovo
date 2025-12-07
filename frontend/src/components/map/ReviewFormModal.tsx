@@ -65,6 +65,9 @@ interface ReviewFormModalProps {
     category: string;
     content: string;
     has_media: boolean;
+    // ⬇️ НОВЫЕ ОПЦИОНАЛЬНЫЕ ПОЛЯ
+    rating?: number;        // Оценка 1-5 (для poi_review)
+    poi?: string;          // UUID POI (если известен)
   }) => Promise<void>;
 }
 
@@ -117,6 +120,7 @@ export const ReviewFormModal: React.FC<ReviewFormModalProps> = ({
               initialData={{
                 latitude: poi.latitude,
                 longitude: poi.longitude,
+                poi: poi.uuid, // ⬅️ Передаем UUID POI
               }}
               initialCategory={getReviewCategory(poi.category.slug)}
               initialReviewType="poi_review"

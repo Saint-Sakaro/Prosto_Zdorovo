@@ -20,7 +20,9 @@ interface SelectProps {
   required?: boolean;
 }
 
-const SelectWrapper = styled.div<{ fullWidth?: boolean }>`
+const SelectWrapper = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['fullWidth'].includes(prop),
+})<{ fullWidth?: boolean }>`
   width: ${({ fullWidth }) => (fullWidth ? '100%' : 'auto')};
   display: flex;
   flex-direction: column;
@@ -35,7 +37,9 @@ const Label = styled.label`
   color: ${({ theme }) => theme.colors.text.secondary};
 `;
 
-const SelectButton = styled(motion.button)<{ hasError?: boolean; isOpen: boolean }>`
+const SelectButton = styled(motion.button).withConfig({
+  shouldForwardProp: (prop) => !['hasError', 'isOpen'].includes(prop),
+})<{ hasError?: boolean; isOpen: boolean }>`
   width: 100%;
   padding: ${({ theme }) => theme.spacing.md};
   background: ${({ theme }) => theme.colors.background.card};
@@ -73,10 +77,10 @@ const SelectButton = styled(motion.button)<{ hasError?: boolean; isOpen: boolean
   `}
 `;
 
-const SelectValue = styled.span<{ placeholder?: boolean }>`
+const SelectValue = styled.span<{ $placeholder?: boolean }>`
   flex: 1;
-  color: ${({ theme, placeholder }) =>
-    placeholder ? theme.colors.text.muted : theme.colors.text.primary};
+  color: ${({ theme, $placeholder }) =>
+    $placeholder ? theme.colors.text.muted : theme.colors.text.primary};
 `;
 
 const SelectIcon = styled(motion.span)`
@@ -273,7 +277,7 @@ export const Select: React.FC<SelectProps> = ({
         whileHover={{ scale: 1.01 }}
         whileTap={{ scale: 0.99 }}
       >
-        <SelectValue placeholder={!selectedOption}>
+        <SelectValue $placeholder={!selectedOption}>
           {selectedOption ? selectedOption.label : placeholder}
         </SelectValue>
         <SelectIcon

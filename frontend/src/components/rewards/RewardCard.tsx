@@ -108,7 +108,9 @@ const PriceLabel = styled.span`
   color: ${({ theme }) => theme.colors.text.muted};
 `;
 
-const Price = styled.div<{ canAfford: boolean }>`
+const Price = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['canAfford'].includes(prop),
+})<{ canAfford: boolean }>`
   font-size: ${({ theme }) => theme.typography.fontSize['2xl']};
   font-weight: ${({ theme }) => theme.typography.fontWeight.bold};
   color: ${({ theme, canAfford }) =>

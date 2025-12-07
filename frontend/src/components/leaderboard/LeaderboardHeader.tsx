@@ -72,7 +72,9 @@ const StatLabel = styled.div`
   margin-top: ${({ theme }) => theme.spacing.xs};
 `;
 
-const PositionBadge = styled.div<{ position?: number }>`
+const PositionBadge = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['position'].includes(prop),
+})<{ position?: number }>`
   padding: ${({ theme }) => theme.spacing.md} ${({ theme }) => theme.spacing.lg};
   background: ${({ theme, position }) => {
     if (!position) return theme.colors.background.card;

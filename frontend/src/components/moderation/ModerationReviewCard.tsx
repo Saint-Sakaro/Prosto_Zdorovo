@@ -235,7 +235,9 @@ export const ModerationReviewCard: React.FC<ModerationReviewCardProps> = ({
               <DetailItem>
                 <span>📍</span>
                 <span>
-                  {review.latitude.toFixed(4)}, {review.longitude.toFixed(4)}
+                  {review.latitude != null && review.longitude != null
+                    ? `${Number(review.latitude).toFixed(4)}, ${Number(review.longitude).toFixed(4)}`
+                    : 'Координаты не указаны'}
                 </span>
               </DetailItem>
             </ReviewDetails>

@@ -26,18 +26,28 @@ from maps.services.health_index_calculator import HealthIndexCalculator
 from maps.services.geocoder_service import GeocoderService
 
 
-class POIViewSet(viewsets.ReadOnlyModelViewSet):
+class POIViewSet(viewsets.ModelViewSet):
     """
     ViewSet для точек интереса (POI)
     
     Эндпоинты:
     - GET /api/maps/pois/ - список POI (с фильтрацией)
     - GET /api/maps/pois/{uuid}/ - детали POI по UUID
+    - POST /api/maps/pois/ - создание POI (требует авторизации)
     - GET /api/maps/pois/in-bbox/ - POI в bounding box
     """
     queryset = POI.objects.filter(is_active=True)
-    permission_classes = [permissions.AllowAny]  # Публичный доступ для карты
     lookup_field = 'uuid'  # Поиск по UUID вместо id
+    
+    def get_permissions(self):
+        """
+        Разрешения:
+        - GET: доступно всем
+        - POST/PUT/DELETE: требует авторизации
+        """
+        if self.action in ['list', 'retrieve', 'in_bbox']:
+            return [permissions.AllowAny()]
+        return [permissions.IsAuthenticated()]
     
     def get_serializer_class(self):
         """

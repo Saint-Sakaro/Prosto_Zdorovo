@@ -34,7 +34,9 @@ const RewardImage = styled.div<{ imageUrl?: string }>`
   overflow: hidden;
 `;
 
-const StatusBadge = styled.div<{ status: string }>`
+const StatusBadge = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['status'].includes(prop),
+})<{ status: string }>`
   position: absolute;
   top: ${({ theme }) => theme.spacing.md};
   right: ${({ theme }) => theme.spacing.md};

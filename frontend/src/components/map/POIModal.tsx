@@ -1,9 +1,14 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { motion, AnimatePresence } from 'framer-motion';
 import { POIDetails } from '../../api/maps';
 import { Button } from '../common/Button';
+import { Card } from '../common/Card';
 import { theme } from '../../theme';
+import { POIFormEditor } from '../poi/POIFormEditor';
+import { RatingDetails } from '../poi/RatingDetails';
+import { ratingsApi } from '../../api/maps';
+import { gamificationApi, Review } from '../../api/gamification';
 
 interface POIModalProps {
   poi: POIDetails | null;
@@ -133,6 +138,51 @@ const ReviewsCount = styled.div`
   margin-bottom: ${({ theme }) => theme.spacing.md};
 `;
 
+const VerifiedBadge = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.xs};
+  padding: ${({ theme }) => theme.spacing.xs} ${({ theme }) => theme.spacing.sm};
+  background: ${({ theme }) => `${theme.colors.accent.success}20`};
+  color: ${({ theme }) => theme.colors.accent.success};
+  border: 1px solid ${({ theme }) => theme.colors.accent.success};
+  border-radius: ${({ theme }) => theme.borderRadius.md};
+  font-size: ${({ theme }) => theme.typography.fontSize.xs};
+  font-weight: ${({ theme }) => theme.typography.fontWeight.semibold};
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+`;
+
+const RatingComponents = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${({ theme }) => theme.spacing.sm};
+  padding: ${({ theme }) => theme.spacing.md};
+  background: ${({ theme }) => theme.colors.background.main};
+  border: 1px solid ${({ theme }) => theme.colors.border.main};
+  border-radius: ${({ theme }) => theme.borderRadius.lg};
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+`;
+
+const RatingComponent = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: ${({ theme }) => theme.typography.fontSize.sm};
+`;
+
+const RatingLabel = styled.span`
+  color: ${({ theme }) => theme.colors.text.secondary};
+`;
+
+const RatingValue = styled.span<{ value: number }>`
+  font-weight: ${({ theme }) => theme.typography.fontWeight.semibold};
+  color: ${({ theme, value }) => {
+    if (value >= 80) return theme.colors.accent.success;
+    if (value >= 60) return theme.colors.accent.warning;
+    return theme.colors.accent.error;
+  }};
+`;
+
 const Description = styled.p`
   font-size: ${({ theme }) => theme.typography.fontSize.base};
   color: ${({ theme }) => theme.colors.text.secondary};
@@ -149,13 +199,104 @@ const ContactInfo = styled.div`
   margin-bottom: ${({ theme }) => theme.spacing.lg};
 `;
 
+const TabsContainer = styled.div`
+  display: flex;
+  gap: ${({ theme }) => theme.spacing.sm};
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border.main};
+`;
+
+const Tab = styled.button<{ $active: boolean }>`
+  padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid
+    ${({ theme, $active }) =>
+      $active ? theme.colors.primary.main : 'transparent'};
+  color: ${({ theme, $active }) =>
+    $active ? theme.colors.primary.main : theme.colors.text.secondary};
+  font-size: ${({ theme }) => theme.typography.fontSize.base};
+  font-weight: ${({ theme, $active }) =>
+    $active
+      ? theme.typography.fontWeight.semibold
+      : theme.typography.fontWeight.medium};
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    color: ${({ theme }) => theme.colors.primary.main};
+  }
+`;
+
+const TabContent = styled.div`
+  max-height: 60vh;
+  overflow-y: auto;
+`;
+
 export const POIModal: React.FC<POIModalProps> = ({
   poi,
   isOpen,
   onClose,
   onCreateReview,
 }) => {
-  if (!poi) return null;
+  const [activeTab, setActiveTab] = useState<'info' | 'form' | 'rating' | 'reviews'>('info');
+  const [poiData, setPoiData] = useState<POIDetails | null>(poi);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+
+  // Обновляем данные POI при изменении
+  React.useEffect(() => {
+    setPoiData(poi);
+  }, [poi]);
+
+  // Загрузка отзывов для POI
+  useEffect(() => {
+    const loadReviews = async () => {
+      if (!poiData || activeTab !== 'reviews') return;
+
+      try {
+        setReviewsLoading(true);
+        // Загружаем отзывы, связанные с этим POI через координаты или UUID
+        const result = await gamificationApi.getReviews({
+          review_type: 'poi_review',
+          moderation_status: 'approved',
+          limit: 50,
+        });
+
+        // Фильтруем отзывы по координатам POI (в радиусе 50 метров)
+        const poiLat = poiData.latitude;
+        const poiLon = poiData.longitude;
+        const filteredReviews = result.results.filter((review) => {
+          const distance = Math.sqrt(
+            Math.pow(review.latitude - poiLat, 2) + Math.pow(review.longitude - poiLon, 2)
+          );
+          // Примерно 50 метров в градусах (1 градус ≈ 111 км)
+          return distance < 0.00045 || review.poi === poiData.uuid;
+        });
+
+        setReviews(filteredReviews);
+      } catch (err) {
+        console.error('Ошибка загрузки отзывов:', err);
+        setReviews([]);
+      } finally {
+        setReviewsLoading(false);
+      }
+    };
+
+    loadReviews();
+  }, [poiData, activeTab]);
+
+  if (!poiData) return null;
+
+  const handleFormSave = async (formData: Record<string, any>) => {
+    try {
+      const updated = await ratingsApi.updatePOIFormData(poiData.uuid, formData);
+      setPoiData(updated);
+      setActiveTab('info');
+    } catch (error) {
+      throw error;
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -174,77 +315,264 @@ export const POIModal: React.FC<POIModalProps> = ({
             transition={{ duration: 0.2 }}
           >
             <ModalHeader>
-              <POIName>{poi.name}</POIName>
+              <POIName>{poiData.name}</POIName>
               <CloseButton onClick={onClose}>×</CloseButton>
             </ModalHeader>
 
-            <POIInfo>
-              <InfoRow>
-                <span>📍</span>
-                <span>{poi.address}</span>
-              </InfoRow>
-              <InfoRow>
-                <CategoryBadge color={poi.category.marker_color}>
-                  {poi.category.name}
-                </CategoryBadge>
-              </InfoRow>
-            </POIInfo>
-
-            <HealthScore>
-              <div>
-                <ScoreValue score={poi.rating.health_score}>
-                  {poi.rating.health_score.toFixed(1)}
-                </ScoreValue>
-                <ScoreLabel>Индекс здоровья</ScoreLabel>
-              </div>
-            </HealthScore>
-
-            <ReviewsCount>
-              Отзывов: {poi.rating.approved_reviews_count} /{' '}
-              {poi.rating.reviews_count}
-            </ReviewsCount>
-
-            {poi.description && (
-              <Description>{poi.description}</Description>
-            )}
-
-            {(poi.phone || poi.website) && (
-              <ContactInfo>
-                {poi.phone && (
-                  <InfoRow>
-                    <span>📞</span>
-                    <span>{poi.phone}</span>
-                  </InfoRow>
-                )}
-                {poi.website && (
-                  <InfoRow>
-                    <span>🌐</span>
-                    <a
-                      href={poi.website}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        color: theme.colors.primary.main,
-                        textDecoration: 'none',
-                      }}
-                    >
-                      {poi.website}
-                    </a>
-                  </InfoRow>
-                )}
-              </ContactInfo>
-            )}
-
-            {onCreateReview && (
-              <Button
-                variant="primary"
-                size="md"
-                onClick={() => onCreateReview(poi)}
-                fullWidth
+            <TabsContainer>
+              <Tab
+                $active={activeTab === 'info'}
+                onClick={() => setActiveTab('info')}
               >
-                ✍️ Оставить отзыв
-              </Button>
-            )}
+                Информация
+              </Tab>
+              <Tab
+                $active={activeTab === 'form'}
+                onClick={() => setActiveTab('form')}
+              >
+                Анкета
+              </Tab>
+              <Tab
+                $active={activeTab === 'rating'}
+                onClick={() => setActiveTab('rating')}
+              >
+                Рейтинг
+              </Tab>
+              <Tab
+                $active={activeTab === 'reviews'}
+                onClick={() => setActiveTab('reviews')}
+              >
+                Отзывы ({poiData.rating.approved_reviews_count})
+              </Tab>
+            </TabsContainer>
+
+            <TabContent>
+              {activeTab === 'info' && (
+                <>
+                  <POIInfo>
+                    <InfoRow>
+                      <span>📍</span>
+                      <span>{poiData.address}</span>
+                    </InfoRow>
+                    <InfoRow>
+                      <CategoryBadge color={poiData.category.marker_color}>
+                        {poiData.category.name}
+                      </CategoryBadge>
+                      {/* Верификация */}
+                      {poiData.verified && (
+                        <VerifiedBadge>
+                          <span>✅</span>
+                          <span>Верифицирован</span>
+                        </VerifiedBadge>
+                      )}
+                    </InfoRow>
+                  </POIInfo>
+
+                  <HealthScore>
+                    <div>
+                      <ScoreValue score={poiData.rating.health_score}>
+                        {poiData.rating.health_score.toFixed(1)}
+                      </ScoreValue>
+                      <ScoreLabel>Индекс здоровья</ScoreLabel>
+                    </div>
+                  </HealthScore>
+
+                  {/* Компоненты рейтинга (если доступны) */}
+                  {(poiData.rating.S_infra !== undefined || 
+                    poiData.rating.S_social !== undefined || 
+                    poiData.rating.S_HIS !== undefined) && (
+                    <RatingComponents>
+                      <div style={{ 
+                        fontSize: theme.typography.fontSize.sm, 
+                        fontWeight: theme.typography.fontWeight.semibold,
+                        color: theme.colors.text.primary,
+                        marginBottom: theme.spacing.xs 
+                      }}>
+                        Компоненты рейтинга:
+                      </div>
+                      {poiData.rating.S_infra !== undefined && (
+                        <RatingComponent>
+                          <RatingLabel>Инфраструктурный:</RatingLabel>
+                          <RatingValue value={poiData.rating.S_infra}>
+                            {poiData.rating.S_infra.toFixed(1)}
+                          </RatingValue>
+                        </RatingComponent>
+                      )}
+                      {poiData.rating.S_social !== undefined && (
+                        <RatingComponent>
+                          <RatingLabel>Социальный:</RatingLabel>
+                          <RatingValue value={poiData.rating.S_social}>
+                            {poiData.rating.S_social.toFixed(1)}
+                          </RatingValue>
+                        </RatingComponent>
+                      )}
+                      {poiData.rating.S_HIS !== undefined && (
+                        <RatingComponent>
+                          <RatingLabel>Итоговый HIS:</RatingLabel>
+                          <RatingValue value={poiData.rating.S_HIS}>
+                            {poiData.rating.S_HIS.toFixed(1)}
+                          </RatingValue>
+                        </RatingComponent>
+                      )}
+                    </RatingComponents>
+                  )}
+
+                  <ReviewsCount>
+                    Отзывов: {poiData.rating.approved_reviews_count} /{' '}
+                    {poiData.rating.reviews_count}
+                  </ReviewsCount>
+
+                  {poiData.description && (
+                    <Description>{poiData.description}</Description>
+                  )}
+
+                  {(poiData.phone || poiData.website) && (
+                    <ContactInfo>
+                      {poiData.phone && (
+                        <InfoRow>
+                          <span>📞</span>
+                          <span>{poiData.phone}</span>
+                        </InfoRow>
+                      )}
+                      {poiData.website && (
+                        <InfoRow>
+                          <span>🌐</span>
+                          <a
+                            href={poiData.website}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color: theme.colors.primary.main,
+                              textDecoration: 'none',
+                            }}
+                          >
+                            {poiData.website}
+                          </a>
+                        </InfoRow>
+                      )}
+                    </ContactInfo>
+                  )}
+
+                  {onCreateReview && (
+                    <Button
+                      variant="primary"
+                      size="md"
+                      onClick={() => onCreateReview(poiData)}
+                      fullWidth
+                    >
+                      ✍️ Оставить отзыв
+                    </Button>
+                  )}
+                </>
+              )}
+
+              {activeTab === 'form' && (
+                <POIFormEditor
+                  poi={poiData}
+                  onSave={handleFormSave}
+                  onCancel={() => setActiveTab('info')}
+                />
+              )}
+
+              {activeTab === 'rating' && (
+                <RatingDetails poi={poiData} />
+              )}
+
+              {activeTab === 'reviews' && (
+                <div>
+                  {reviewsLoading ? (
+                    <div style={{ 
+                      padding: theme.spacing.xl, 
+                      textAlign: 'center',
+                      color: theme.colors.text.secondary 
+                    }}>
+                      Загрузка отзывов...
+                    </div>
+                  ) : reviews.length === 0 ? (
+                    <div style={{ 
+                      padding: theme.spacing.xl, 
+                      textAlign: 'center',
+                      color: theme.colors.text.secondary 
+                    }}>
+                      <p>Пока нет отзывов об этом объекте</p>
+                      {onCreateReview && (
+                        <div style={{ marginTop: theme.spacing.md }}>
+                          <Button
+                            variant="primary"
+                            onClick={() => onCreateReview(poiData)}
+                            fullWidth
+                          >
+                            ✍️ Оставить первый отзыв
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.md }}>
+                      {reviews.map((review) => (
+                        <Card key={review.uuid} padding={theme.spacing.md}>
+                          <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'start',
+                            marginBottom: theme.spacing.sm 
+                          }}>
+                            <div>
+                              <div style={{ 
+                                fontWeight: theme.typography.fontWeight.semibold,
+                                color: theme.colors.text.primary,
+                                marginBottom: theme.spacing.xs
+                              }}>
+                                @{review.author_username}
+                              </div>
+                              {review.rating && (
+                                <div style={{ 
+                                  fontSize: theme.typography.fontSize.sm,
+                                  color: theme.colors.text.secondary,
+                                  marginBottom: theme.spacing.xs
+                                }}>
+                                  Оценка: {'⭐'.repeat(review.rating)} {review.rating}/5
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ 
+                              fontSize: theme.typography.fontSize.xs,
+                              color: theme.colors.text.muted
+                            }}>
+                              {new Date(review.created_at).toLocaleDateString('ru-RU')}
+                            </div>
+                          </div>
+                          <div style={{ 
+                            color: theme.colors.text.primary,
+                            lineHeight: theme.typography.lineHeight.relaxed,
+                            marginBottom: theme.spacing.sm
+                          }}>
+                            {review.content}
+                          </div>
+                          {review.has_media && (
+                            <div style={{ 
+                              fontSize: theme.typography.fontSize.xs,
+                              color: theme.colors.primary.main
+                            }}>
+                              📷 Есть медиа
+                            </div>
+                          )}
+                        </Card>
+                      ))}
+                      {onCreateReview && (
+                        <Button
+                          variant="outline"
+                          onClick={() => onCreateReview(poiData)}
+                          fullWidth
+                        >
+                          ✍️ Оставить отзыв
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </TabContent>
           </ModalContent>
         </Overlay>
       )}

@@ -20,7 +20,9 @@ const TabsWrapper = styled.div`
   padding: ${({ theme }) => theme.spacing.sm};
 `;
 
-const Tab = styled(motion.button)<{ active: boolean }>`
+const Tab = styled(motion.button).withConfig({
+  shouldForwardProp: (prop) => !['active'].includes(prop),
+})<{ active: boolean }>`
   flex: 1;
   padding: ${({ theme }) => theme.spacing.md} ${({ theme }) => theme.spacing.lg};
   border-radius: ${({ theme }) => theme.borderRadius.lg};

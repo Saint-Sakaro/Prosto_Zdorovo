@@ -64,11 +64,13 @@ class ReviewSerializer(serializers.ModelSerializer):
             'content', 'has_media', 'is_unique',
             'moderation_status', 'moderated_by', 'moderated_by_username',
             'moderated_at', 'moderation_comment',
+            'rating', 'poi', 'sentiment_score', 'extracted_facts',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
             'uuid', 'author', 'is_unique', 'moderation_status',
             'moderated_by', 'moderated_at', 'moderation_comment',
+            'sentiment_score', 'extracted_facts',
             'created_at', 'updated_at',
         ]
 
@@ -86,7 +88,7 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
         model = Review
         fields = [
             'review_type', 'latitude', 'longitude', 'category',
-            'content', 'has_media',
+            'content', 'has_media', 'rating', 'poi',
         ]
 
 

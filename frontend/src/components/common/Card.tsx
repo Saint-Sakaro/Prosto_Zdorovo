@@ -11,7 +11,9 @@ interface CardProps {
   onClick?: () => void;
 }
 
-const StyledCard = styled(motion.div)<CardProps>`
+const StyledCard = styled(motion.div).withConfig({
+  shouldForwardProp: (prop) => !['hover', 'glow'].includes(prop),
+})<CardProps>`
   background: ${({ theme }) => theme.colors.background.card};
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);

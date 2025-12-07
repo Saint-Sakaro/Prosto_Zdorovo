@@ -15,6 +15,189 @@ from decimal import Decimal
 import uuid
 
 
+class FormSchema(models.Model):
+    """
+    JSON-схема анкеты для категории объектов
+    
+    Хранит структуру анкеты с полями, весами и типами.
+    Каждая категория может иметь свою схему анкеты.
+    """
+    
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        verbose_name='UUID'
+    )
+    
+    # Связь с категорией POI
+    category = models.OneToOneField(
+        'POICategory',
+        on_delete=models.CASCADE,
+        related_name='form_schema',
+        verbose_name='Категория'
+    )
+    
+    # Название схемы
+    name = models.CharField(
+        max_length=200,
+        verbose_name='Название схемы'
+    )
+    
+    # JSON-схема анкеты
+    # Структура:
+    # {
+    #   "fields": [
+    #     {
+    #       "id": "field_id",
+    #       "type": "boolean|range|select|photo",
+    #       "label": "Название поля",
+    #       "direction": 1 или -1,
+    #       "weight": float,
+    #       "scale_min": float (для range),
+    #       "scale_max": float (для range),
+    #       "mapping": {value: normalized_value} (для select),
+    #       "options": [список значений] (для select)
+    #     }
+    #   ],
+    #   "version": "1.0",
+    #   "generated_by_llm": bool,
+    #   "llm_prompt": str (если генерировалась через LLM)
+    # }
+    schema_json = models.JSONField(
+        default=dict,
+        verbose_name='JSON схема анкеты'
+    )
+    
+    # Версия схемы (для отслеживания изменений)
+    version = models.CharField(
+        max_length=20,
+        default='1.0',
+        verbose_name='Версия схемы'
+    )
+    
+    # Флаг генерации через LLM
+    generated_by_llm = models.BooleanField(
+        default=False,
+        verbose_name='Сгенерирована через LLM'
+    )
+    
+    # Промпт для LLM (если использовалась генерация)
+    llm_prompt = models.TextField(
+        blank=True,
+        verbose_name='Промпт для LLM'
+    )
+    
+    # Статус схемы
+    STATUS_CHOICES = [
+        ('draft', 'Черновик'),
+        ('pending_review', 'Ожидает проверки'),
+        ('approved', 'Утверждена'),
+        ('archived', 'Архивная'),
+    ]
+    
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='draft',
+        verbose_name='Статус'
+    )
+    
+    # Кто утвердил схему
+    approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='approved_schemas',
+        verbose_name='Утвердил'
+    )
+    
+    # Дата утверждения
+    approved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Дата утверждения'
+    )
+    
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Дата обновления'
+    )
+    
+    class Meta:
+        verbose_name = 'Схема анкеты'
+        verbose_name_plural = 'Схемы анкет'
+        ordering = ['category__name', 'version']
+    
+    def __str__(self):
+        return f"{self.category.name} - {self.name} (v{self.version})"
+    
+    def get_fields(self):
+        """
+        Получить список полей из JSON схемы
+        
+        Returns:
+            list: Список словарей с полями анкеты
+        """
+        return self.schema_json.get('fields', [])
+    
+    def validate_schema(self):
+        """
+        Валидация JSON схемы
+        
+        Returns:
+            tuple: (is_valid: bool, errors: list)
+        """
+        errors = []
+        
+        if 'fields' not in self.schema_json:
+            errors.append('Отсутствует поле "fields" в схеме')
+            return False, errors
+        
+        fields = self.schema_json.get('fields', [])
+        if not isinstance(fields, list) or len(fields) == 0:
+            errors.append('Поле "fields" должно быть непустым списком')
+            return False, errors
+        
+        for i, field in enumerate(fields):
+            field_errors = []
+            
+            if 'id' not in field:
+                field_errors.append('Отсутствует обязательное поле "id"')
+            
+            if 'type' not in field:
+                field_errors.append('Отсутствует обязательное поле "type"')
+            elif field['type'] not in ['boolean', 'range', 'select', 'photo']:
+                field_errors.append(f'Недопустимый тип поля: {field["type"]}')
+            
+            if 'weight' not in field:
+                field_errors.append('Отсутствует обязательное поле "weight"')
+            
+            if 'direction' not in field:
+                field_errors.append('Отсутствует обязательное поле "direction"')
+            elif field.get('direction') not in [1, -1]:
+                field_errors.append('Поле "direction" должно быть 1 или -1')
+            
+            # Специфичные проверки для разных типов
+            if field.get('type') == 'range':
+                if 'scale_min' not in field or 'scale_max' not in field:
+                    field_errors.append('Для типа "range" обязательны поля scale_min и scale_max')
+            
+            if field.get('type') == 'select':
+                if 'mapping' not in field and 'options' not in field:
+                    field_errors.append('Для типа "select" необходимо поле "mapping" или "options"')
+            
+            if field_errors:
+                errors.append(f'Поле #{i+1}: {"; ".join(field_errors)}')
+        
+        return len(errors) == 0, errors
+
+
 class POICategory(models.Model):
     """
     Категория объектов инфраструктуры
@@ -212,6 +395,44 @@ class POI(models.Model):
         verbose_name='Метаданные'
     )
     
+    # Связь со схемой анкеты
+    form_schema = models.ForeignKey(
+        'FormSchema',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pois',
+        verbose_name='Схема анкеты'
+    )
+    
+    # Заполненные данные анкеты (JSON)
+    form_data = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='Данные анкеты'
+    )
+    
+    # Верификация объекта
+    verified = models.BooleanField(
+        default=False,
+        verbose_name='Верифицирован'
+    )
+    
+    verified_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='verified_pois',
+        verbose_name='Верифицировал'
+    )
+    
+    verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Дата верификации'
+    )
+    
     # Активен ли объект
     is_active = models.BooleanField(
         default=True,
@@ -268,10 +489,30 @@ class POIRating(models.Model):
     )
     
     # Интегральный рейтинг "здоровости" (0-100)
+    # Теперь это алиас для S_HIS для обратной совместимости
     health_score = models.FloatField(
         default=50.0,
         validators=[MinValueValidator(0.0), MaxValueValidator(100.0)],
         verbose_name='Индекс здоровья'
+    )
+    
+    # Компоненты рейтинга
+    S_infra = models.FloatField(
+        default=50.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(100.0)],
+        verbose_name='Инфраструктурный рейтинг'
+    )
+    
+    S_social = models.FloatField(
+        default=50.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(100.0)],
+        verbose_name='Социальный рейтинг'
+    )
+    
+    S_HIS = models.FloatField(
+        default=50.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(100.0)],
+        verbose_name='Health Impact Score'
     )
     
     # Количество отзывов (из модуля геймификации)
@@ -300,6 +541,25 @@ class POIRating(models.Model):
     last_calculated_at = models.DateTimeField(
         auto_now=True,
         verbose_name='Последний расчет'
+    )
+    
+    # Метаданные расчета
+    last_infra_calculation = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Последний расчет S_infra'
+    )
+    
+    last_social_calculation = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Последний расчет S_social'
+    )
+    
+    calculation_metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='Метаданные расчета'
     )
     
     # Метод расчета рейтинга (для истории)

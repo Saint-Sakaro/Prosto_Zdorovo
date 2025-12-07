@@ -51,7 +51,9 @@ const ReviewType = styled.div<{ type: string }>`
         : theme.colors.accent.warning};
 `;
 
-const StatusBadge = styled.div<{ status: string }>`
+const StatusBadge = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['status'].includes(prop),
+})<{ status: string }>`
   padding: ${({ theme }) => theme.spacing.xs} ${({ theme }) => theme.spacing.sm};
   border-radius: ${({ theme }) => theme.borderRadius.md};
   font-size: ${({ theme }) => theme.typography.fontSize.xs};
@@ -208,7 +210,9 @@ export const ReviewCard: React.FC<ReviewCardProps> = ({ review, onClick }) => {
         <ReviewFooter>
           <div>{formattedDate}</div>
           <div>
-            {review.latitude.toFixed(4)}, {review.longitude.toFixed(4)}
+            {review.latitude != null && review.longitude != null
+              ? `${Number(review.latitude).toFixed(4)}, ${Number(review.longitude).toFixed(4)}`
+              : 'Координаты не указаны'}
           </div>
         </ReviewFooter>
       </ReviewCardWrapper>

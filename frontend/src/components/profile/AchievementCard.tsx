@@ -31,7 +31,9 @@ const AchievementCardWrapper = styled(motion.div)`
   height: 100%;
 `;
 
-const AchievementCardContent = styled(Card)<{ unlocked: boolean }>`
+const AchievementCardContent = styled(Card).withConfig({
+  shouldForwardProp: (prop) => !['unlocked'].includes(prop),
+})<{ unlocked: boolean }>`
   padding: ${({ theme }) => theme.spacing.lg};
   height: 100%;
   display: flex;
@@ -49,7 +51,9 @@ const AchievementCardContent = styled(Card)<{ unlocked: boolean }>`
   `}
 `;
 
-const IconWrapper = styled.div<{ rarity: string; unlocked: boolean }>`
+const IconWrapper = styled.div.withConfig({
+  shouldForwardProp: (prop) => !['rarity', 'unlocked'].includes(prop),
+})<{ rarity: string; unlocked: boolean }>`
   width: 80px;
   height: 80px;
   border-radius: ${({ theme }) => theme.borderRadius.xl};
@@ -113,7 +117,9 @@ const Description = styled.p`
   margin-bottom: ${({ theme }) => theme.spacing.md};
 `;
 
-const RarityBadge = styled.span<{ rarity: string }>`
+const RarityBadge = styled.span.withConfig({
+  shouldForwardProp: (prop) => !['rarity'].includes(prop),
+})<{ rarity: string }>`
   display: inline-block;
   padding: ${({ theme }) => `${theme.spacing.xs} ${theme.spacing.sm}`};
   border-radius: ${({ theme }) => theme.borderRadius.md};

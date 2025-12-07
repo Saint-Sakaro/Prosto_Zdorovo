@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('maps', '0004_remove_slug_from_category'),
+        ('maps', '0001_initial'),
     ]
 
     operations = [

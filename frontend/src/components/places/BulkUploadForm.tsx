@@ -49,6 +49,35 @@ const FileInput = styled.input`
   display: none;
 `;
 
+const LoadingAnimation = styled(motion.div)`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: ${({ theme }) => theme.spacing.md};
+  padding: ${({ theme }) => theme.spacing.xl};
+  min-height: 200px;
+`;
+
+const Spinner = styled(motion.div)`
+  width: 60px;
+  height: 60px;
+  border: 4px solid ${({ theme }) => theme.colors.primary.main}20;
+  border-top-color: ${({ theme }) => theme.colors.primary.main};
+  border-radius: 50%;
+`;
+
+const LoadingText = styled.div`
+  font-size: ${({ theme }) => theme.typography.fontSize.lg};
+  color: ${({ theme }) => theme.colors.text.primary};
+  font-weight: ${({ theme }) => theme.typography.fontWeight.medium};
+`;
+
+const LoadingSubtext = styled.div`
+  font-size: ${({ theme }) => theme.typography.fontSize.sm};
+  color: ${({ theme }) => theme.colors.text.secondary};
+`;
+
 const FileInputButton = styled.label`
   display: flex;
   align-items: center;
@@ -253,16 +282,15 @@ export const BulkUploadForm: React.FC = () => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
       
-      // Проверка расширения файла
-      const validExtensions = ['.xlsx', '.xls'];
+      // Принимаем любой файл (расширение проверяем, но не строго)
       const fileExtension = selectedFile.name
         .substring(selectedFile.name.lastIndexOf('.'))
         .toLowerCase();
       
-      if (!validExtensions.includes(fileExtension)) {
-        setError('Пожалуйста, выберите файл Excel (.xlsx или .xls)');
-        setFile(null);
-        return;
+      // Предупреждаем, но не блокируем загрузку
+      const validExtensions = ['.xlsx', '.xls', '.csv'];
+      if (!validExtensions.includes(fileExtension) && fileExtension !== '') {
+        console.warn(`Файл с расширением ${fileExtension} может быть не поддерживаемым форматом`);
       }
       
       setFile(selectedFile);
@@ -290,7 +318,13 @@ export const BulkUploadForm: React.FC = () => {
     setResult(null);
 
     try {
-      const uploadResult = await bulkUploadPlaces(file, autoCreateCategories);
+      // Имитируем загрузку с анимацией (минимум 2 секунды)
+      const uploadPromise = bulkUploadPlaces(file, autoCreateCategories);
+      const minDelayPromise = new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Ждем завершения обоих промисов (загрузка + минимальная задержка)
+      const [uploadResult] = await Promise.all([uploadPromise, minDelayPromise]);
+      
       setResult(uploadResult);
     } catch (err: any) {
       console.error('Ошибка загрузки:', err);
@@ -322,7 +356,7 @@ export const BulkUploadForm: React.FC = () => {
           <FileInputLabel>Excel файл *</FileInputLabel>
           <FileInput
             type="file"
-            accept=".xlsx,.xls"
+            accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             onChange={handleFileChange}
             id="file-input"
             required
@@ -371,8 +405,28 @@ export const BulkUploadForm: React.FC = () => {
         </ButtonsRow>
       </Form>
 
+      {/* Анимация загрузки */}
+      {uploading && (
+        <LoadingAnimation
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <Spinner
+            animate={{ rotate: 360 }}
+            transition={{
+              duration: 1,
+              repeat: Infinity,
+              ease: 'linear'
+            }}
+          />
+          <LoadingText>Обработка файла...</LoadingText>
+          <LoadingSubtext>Пожалуйста, подождите</LoadingSubtext>
+        </LoadingAnimation>
+      )}
+
       {/* Результаты загрузки */}
-      {result && (
+      {result && !uploading && (
         <ResultCard>
           <ResultTitle>Результаты загрузки</ResultTitle>
           <ResultGrid>

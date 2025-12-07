@@ -5,7 +5,6 @@ import { POIDetails } from '../../api/maps';
 import { Button } from '../common/Button';
 import { Card } from '../common/Card';
 import { theme } from '../../theme';
-import { POIFormEditor } from '../poi/POIFormEditor';
 import { RatingDetails } from '../poi/RatingDetails';
 import { ratingsApi } from '../../api/maps';
 import { gamificationApi, Review } from '../../api/gamification';
@@ -239,7 +238,7 @@ export const POIModal: React.FC<POIModalProps> = ({
   onClose,
   onCreateReview,
 }) => {
-  const [activeTab, setActiveTab] = useState<'info' | 'form' | 'rating' | 'reviews'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'rating' | 'reviews'>('info');
   const [poiData, setPoiData] = useState<POIDetails | null>(poi);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
@@ -288,16 +287,6 @@ export const POIModal: React.FC<POIModalProps> = ({
 
   if (!poiData) return null;
 
-  const handleFormSave = async (formData: Record<string, any>) => {
-    try {
-      const updated = await ratingsApi.updatePOIFormData(poiData.uuid, formData);
-      setPoiData(updated);
-      setActiveTab('info');
-    } catch (error) {
-      throw error;
-    }
-  };
-
   return (
     <AnimatePresence>
       {isOpen && (
@@ -325,12 +314,6 @@ export const POIModal: React.FC<POIModalProps> = ({
                 onClick={() => setActiveTab('info')}
               >
                 Информация
-              </Tab>
-              <Tab
-                $active={activeTab === 'form'}
-                onClick={() => setActiveTab('form')}
-              >
-                Анкета
               </Tab>
               <Tab
                 $active={activeTab === 'rating'}
@@ -464,14 +447,6 @@ export const POIModal: React.FC<POIModalProps> = ({
                     </Button>
                   )}
                 </>
-              )}
-
-              {activeTab === 'form' && (
-                <POIFormEditor
-                  poi={poiData}
-                  onSave={handleFormSave}
-                  onCancel={() => setActiveTab('info')}
-                />
               )}
 
               {activeTab === 'rating' && (

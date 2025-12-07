@@ -76,22 +76,18 @@ const Logo = styled(Link)`
   }
 `;
 
-const LogoIcon = styled.div`
+const LogoIcon = styled.img`
   width: 40px;
   height: 40px;
   border-radius: ${({ theme }) => theme.borderRadius.lg};
-  background: ${({ theme }) => theme.colors.primary.gradient};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: ${({ theme }) => theme.typography.fontSize.xl};
+  object-fit: cover;
   box-shadow: ${({ theme }) => theme.shadows.glow};
   flex-shrink: 0;
+  border: 2px solid ${({ theme }) => theme.colors.primary.main}40;
   
   @media (max-width: 1200px) {
     width: 32px;
     height: 32px;
-    font-size: ${({ theme }) => theme.typography.fontSize.lg};
   }
   
   @media (max-width: 768px) {
@@ -259,7 +255,7 @@ export const Header: React.FC = () => {
     >
       <HeaderContent>
         <Logo to="/">
-          <LogoIcon>🏥</LogoIcon>
+          <LogoIcon src="/logo.png" alt="Карта Здоровья" />
           <span>Карта Здоровья</span>
         </Logo>
 

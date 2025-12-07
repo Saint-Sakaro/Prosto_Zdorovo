@@ -107,7 +107,13 @@ class AreaAnalysisService:
         
         # Применяем фильтры по категориям
         if category_filters:
-            pois = pois.filter(category__slug__in=category_filters)
+            # Поддержка категорий без slug - фильтруем по slug или uuid
+            from django.db.models import Q
+            filter_conditions = Q()
+            for filter_slug in category_filters:
+                # Пробуем найти по slug или по uuid
+                filter_conditions |= Q(category__slug=filter_slug) | Q(category__uuid=filter_slug)
+            pois = pois.filter(filter_conditions)
         
         # Рассчитываем индекс здоровья
         health_index = self.health_calculator.calculate_area_index(pois)
@@ -283,7 +289,12 @@ class AreaAnalysisService:
         """
         stats = {}
         for poi in pois.select_related('category', 'rating'):
-            category_slug = poi.category.slug
+            if not poi.category:
+                continue
+                
+            # Используем getattr для поддержки категорий без slug
+            category_slug = getattr(poi.category, 'slug', None) or str(poi.category.uuid)
+            
             if category_slug not in stats:
                 stats[category_slug] = {
                     'name': poi.category.name,
@@ -317,13 +328,19 @@ class AreaAnalysisService:
         """
         objects_list = []
         for poi in pois.select_related('category', 'rating')[:limit]:
+            if not poi.category:
+                continue
+                
+            # Используем getattr для поддержки категорий без slug
+            category_slug = getattr(poi.category, 'slug', None) or str(poi.category.uuid)
+            
             objects_list.append({
                 'uuid': str(poi.uuid),
                 'name': poi.name,
                 'category': {
-                    'slug': poi.category.slug,
+                    'slug': category_slug,
                     'name': poi.category.name,
-                    'marker_color': poi.category.marker_color,
+                    'marker_color': getattr(poi.category, 'marker_color', '#3498db'),
                 },
                 'address': poi.address,
                 'latitude': float(poi.latitude),

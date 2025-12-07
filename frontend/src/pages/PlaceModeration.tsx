@@ -369,7 +369,7 @@ export const PlaceModerationPage: React.FC = () => {
                         <SubmissionName>{submission.name}</SubmissionName>
                         <SubmissionAddress>📍 {submission.address}</SubmissionAddress>
                         <SubmissionCategory>
-                          🏷️ {submission.category?.name || submission.category_slug}
+                          🏷️ {submission.category?.name || 'Без категории'}
                         </SubmissionCategory>
                         <SubmissionDate>
                           📅{' '}

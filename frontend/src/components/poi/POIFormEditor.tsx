@@ -195,7 +195,7 @@ export const POIFormEditor: React.FC<POIFormEditorProps> = ({
         } else {
           // Иначе пытаемся найти схему для категории
           const schemas = await ratingsApi.getFormSchemas({
-            category: poi.category.slug,
+            category: poi.category?.uuid || '',
           });
           
           // Берем первую одобренную схему

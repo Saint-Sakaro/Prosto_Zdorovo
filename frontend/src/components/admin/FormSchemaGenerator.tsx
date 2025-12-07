@@ -305,7 +305,7 @@ export const FormSchemaGenerator: React.FC<FormSchemaGeneratorProps> = ({
               // Пытаемся найти схему для этой категории, чтобы получить category ID
               try {
                 const schemas = await ratingsApi.getFormSchemas({
-                  category: category.slug,
+                  category: category.uuid,
                 });
                 
                 // Если есть схемы, берем category ID из первой

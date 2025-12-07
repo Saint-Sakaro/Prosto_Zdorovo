@@ -240,7 +240,7 @@ export const MySubmissionsList: React.FC<MySubmissionsListProps> = ({
               </InfoRow>
               <InfoRow>
                 <span>🏷️</span>
-                <span>{submission.category.name || submission.category_slug}</span>
+                <span>{submission.category?.name || 'Без категории'}</span>
               </InfoRow>
             </SubmissionInfo>
 

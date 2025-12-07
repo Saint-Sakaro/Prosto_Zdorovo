@@ -117,7 +117,7 @@ MODERATION_STATUS_CHOICES = [
 moderation_status = models.CharField(
     max_length=20,
     choices=MODERATION_STATUS_CHOICES,
-    default='approved',
+    default='pending',  # Новые заявки требуют модерации
     verbose_name='Статус модерации'
 )
 

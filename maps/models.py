@@ -225,13 +225,6 @@ class POICategory(models.Model):
         verbose_name='Название'
     )
     
-    # Слаг для URL и фильтров
-    slug = models.SlugField(
-        max_length=200,
-        unique=True,
-        verbose_name='Слаг'
-    )
-    
     # Описание категории
     description = models.TextField(
         blank=True,
@@ -250,20 +243,6 @@ class POICategory(models.Model):
         max_length=7,
         default='#FF0000',
         verbose_name='Цвет маркера'
-    )
-    
-    # Вес категории при расчете индекса "здоровости"
-    # Положительные значения увеличивают индекс, отрицательные - уменьшают
-    health_weight = models.FloatField(
-        default=1.0,
-        verbose_name='Вес для индекса здоровья'
-    )
-    
-    # Важность категории для здоровья (0-10)
-    health_importance = models.IntegerField(
-        default=5,
-        validators=[MinValueValidator(0), MaxValueValidator(10)],
-        verbose_name='Важность для здоровья'
     )
     
     # Порядок отображения в фильтрах
@@ -444,7 +423,7 @@ class POI(models.Model):
     moderation_status = models.CharField(
         max_length=20,
         choices=MODERATION_STATUS_CHOICES,
-        default='approved',  # Для существующих записей
+        default='pending',  # Новые заявки требуют модерации
         verbose_name='Статус модерации'
     )
     

@@ -345,7 +345,7 @@ export const CreatePOIModal: React.FC<CreatePOIModalProps> = ({
               options={[
                 { value: '', label: 'Выберите категорию' },
                 ...categories.map((cat) => ({
-                  value: cat.slug,
+                  value: cat.uuid,
                   label: cat.name,
                 })),
               ]}

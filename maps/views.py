@@ -8,19 +8,19 @@ Views для REST API модуля карт
 - Получения категорий для фильтров
 """
 
-from rest_framework import viewsets, status, permissions
+from rest_framework import viewsets, status, permissions, serializers as drf_serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.db.models import Q
 from django.conf import settings
-from django.utils.text import slugify
 from django.db import transaction
 import pandas as pd
 import logging
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Any, List
 
+from django.contrib.auth.models import User
 from maps.models import POI, POICategory, POIRating, FormSchema
 from maps.serializers import (
     POISerializer, POIListSerializer, POICategorySerializer,
@@ -134,15 +134,15 @@ class POIViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Получаем категории для фильтрации
+        # Получаем категории для фильтрации (теперь по UUID)
         categories_str = request.query_params.get('categories', '')
-        category_slugs = [c.strip() for c in categories_str.split(',')] if categories_str else None
+        category_uuids = [c.strip() for c in categories_str.split(',')] if categories_str else None
         
         try:
             # Получаем POI
             filter_service = POIFilterService()
             bbox = {'sw_lat': sw_lat, 'sw_lon': sw_lon, 'ne_lat': ne_lat, 'ne_lon': ne_lon}
-            pois = filter_service.get_filtered_pois(category_slugs=category_slugs, bbox=bbox)
+            pois = filter_service.get_filtered_pois(category_uuids=category_uuids, bbox=bbox)
             
             # Получаем количество до сериализации
             count = pois.count()
@@ -165,23 +165,97 @@ class POIViewSet(viewsets.ModelViewSet):
             )
 
 
-class POICategoryViewSet(viewsets.ReadOnlyModelViewSet):
+class POICategoryViewSet(viewsets.ModelViewSet):
     """
     ViewSet для категорий POI
     
     Эндпоинты:
-    - GET /api/maps/categories/ - список категорий
-    - GET /api/maps/categories/{slug}/ - детали категории
-    - GET /api/maps/categories/{slug}/schema/ - получить схему анкеты категории
-    - PUT /api/maps/categories/{slug}/schema/ - обновить схему анкеты категории
+    - GET /api/maps/categories/ - список категорий (публичный доступ)
+    - GET /api/maps/categories/{uuid}/ - детали категории (публичный доступ)
+    - POST /api/maps/categories/ - создать категорию (только администраторы)
+    - PUT /api/maps/categories/{uuid}/ - обновить категорию (только администраторы)
+    - DELETE /api/maps/categories/{uuid}/ - удалить категорию (только администраторы)
+    - GET /api/maps/categories/{uuid}/schema/ - получить схему анкеты категории
+    - PUT /api/maps/categories/{uuid}/schema/ - обновить схему анкеты категории
     """
-    queryset = POICategory.objects.filter(is_active=True)
+    queryset = POICategory.objects.all()
     serializer_class = POICategorySerializer
-    permission_classes = [permissions.AllowAny]  # Публичный доступ
-    lookup_field = 'slug'  # Поиск по slug вместо id
+    lookup_field = 'uuid'
+    
+    def get_permissions(self):
+        """
+        Права доступа:
+        - Чтение (GET): публичный доступ
+        - Создание/обновление/удаление: только администраторы
+        """
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [permissions.AllowAny]
+        elif self.action == 'schema':
+            permission_classes = [permissions.IsAuthenticated]
+        else:
+            permission_classes = [permissions.IsAdminUser]
+        return [permission() for permission in permission_classes]
+    
+    def create(self, request, *args, **kwargs):
+        """
+        Переопределяем create для лучшей обработки ошибок
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f'Создание категории. Пользователь: {request.user}, Данные: {request.data}')
+        
+        # Проверяем права доступа
+        if not request.user.is_authenticated:
+            logger.warning('Попытка создания категории неавторизованным пользователем')
+            return Response(
+                {'error': 'Требуется авторизация'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        if not (request.user.is_staff or request.user.is_superuser):
+            logger.warning(f'Попытка создания категории пользователем без прав: {request.user.username}')
+            return Response(
+                {'error': 'Недостаточно прав. Требуются права администратора'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = self.get_serializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+            category = serializer.save()
+            logger.info(f'Категория создана успешно: {category.uuid} - {category.name}')
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            from rest_framework import serializers
+            if isinstance(e, serializers.ValidationError):
+                logger.error(f'Ошибка валидации при создании категории: {e.detail}')
+                return Response(
+                    {'error': 'Ошибка валидации', 'details': e.detail},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            logger.error(f'Ошибка при создании категории: {str(e)}', exc_info=True)
+            error_message = str(e)
+            if hasattr(e, 'detail'):
+                error_message = e.detail
+            elif hasattr(e, 'message_dict'):
+                error_message = e.message_dict
+            return Response(
+                {'error': f'Ошибка создания категории: {error_message}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    def get_queryset(self):
+        """
+        Фильтр категорий для чтения - только активные
+        Для администраторов - все категории
+        """
+        if self.action in ['list', 'retrieve']:
+            return POICategory.objects.filter(is_active=True)
+        return POICategory.objects.all()
     
     @action(detail=True, methods=['get', 'put'], permission_classes=[permissions.IsAuthenticated])
-    def schema(self, request, slug=None):
+    def schema(self, request, uuid=None):
         """
         Получить или обновить схему анкеты для категории
         
@@ -516,9 +590,18 @@ class BulkUploadPOIView(APIView):
     Body (FormData):
     - file: Excel файл (.xlsx или .xls)
     - auto_create_categories: boolean (опционально, default=False)
+    - use_sheet_as_category: boolean (опционально, default=False)
+        Если True, каждый лист Excel = категория (название листа = название категории)
+        Если False, используется один лист с колонкой "категория"
     
     Формат Excel файла:
+    Режим 1 (use_sheet_as_category=False):
     - Обязательные колонки: название, адрес, широта, долгота, категория
+    - Опциональные колонки: описание, телефон, сайт, email, время_работы
+    
+    Режим 2 (use_sheet_as_category=True):
+    - Каждый лист Excel = одна категория (название листа = категория)
+    - Обязательные колонки: название, адрес, широта, долгота
     - Опциональные колонки: описание, телефон, сайт, email, время_работы
     """
     permission_classes = [IsModerator]  # Только для модераторов
@@ -546,8 +629,9 @@ class BulkUploadPOIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Получаем опцию автоматического создания категорий
+        # Получаем опции
         auto_create_categories = request.data.get('auto_create_categories', 'false').lower() == 'true'
+        use_sheet_as_category = request.data.get('use_sheet_as_category', 'false').lower() == 'true'
         
         # Статистика
         stats = {
@@ -555,94 +639,16 @@ class BulkUploadPOIView(APIView):
             'created': 0,
             'errors': 0,
             'errors_details': [],
-            'categories_created': []
+            'categories_created': [],
+            'sheets_processed': 0
         }
         
         try:
-            # Читаем Excel файл
-            df = pd.read_excel(file, engine='openpyxl' if file.name.endswith('.xlsx') else None)
-            
-            if df.empty:
-                return Response(
-                    {'error': 'Файл пуст или не содержит данных'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            stats['total'] = len(df)
-            
-            # Нормализуем названия колонок (приводим к нижнему регистру, убираем пробелы)
-            df.columns = df.columns.str.strip().str.lower()
-            
-            # Определяем маппинг колонок
-            column_mapping = self._detect_column_mapping(df.columns.tolist())
-            
-            # Проверяем наличие обязательных колонок
-            required_columns = ['name', 'address', 'latitude', 'longitude', 'category']
-            missing_columns = [col for col in required_columns if col not in column_mapping]
-            
-            if missing_columns:
-                return Response(
-                    {
-                        'error': f'Отсутствуют обязательные колонки: {", ".join(missing_columns)}',
-                        'available_columns': list(df.columns)
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Обрабатываем каждую строку
-            for index, row in df.iterrows():
-                try:
-                    poi_data = self._extract_poi_data(row, column_mapping)
-                    
-                    # Получаем или создаем категорию
-                    category = self._get_or_create_category(
-                        poi_data['category'],
-                        auto_create_categories,
-                        stats
-                    )
-                    
-                    if not category:
-                        stats['errors'] += 1
-                        stats['errors_details'].append({
-                            'row': index + 2,  # +2 потому что индекс с 0, и есть заголовок
-                            'message': f'Категория "{poi_data["category"]}" не найдена'
-                        })
-                        continue
-                    
-                    # Создаем POI
-                    with transaction.atomic():
-                        poi = POI.objects.create(
-                            name=poi_data['name'],
-                            address=poi_data['address'],
-                            latitude=Decimal(str(poi_data['latitude'])),
-                            longitude=Decimal(str(poi_data['longitude'])),
-                            category=category,
-                            description=poi_data.get('description', ''),
-                            phone=poi_data.get('phone', ''),
-                            website=poi_data.get('website', ''),
-                            email=poi_data.get('email', ''),
-                            working_hours=poi_data.get('working_hours', ''),
-                            moderation_status='approved',  # Автоматически одобряем при bulk upload
-                            is_active=True,
-                            submitted_by=request.user,
-                            verified=True,
-                            verified_by=request.user,
-                            verified_at=timezone.now(),
-                            form_data=poi_data.get('form_data', {})
-                        )
-                        
-                        stats['created'] += 1
-                        
-                except Exception as e:
-                    stats['errors'] += 1
-                    error_message = str(e)
-                    logger.error(f"Ошибка при создании POI из строки {index + 2}: {error_message}")
-                    stats['errors_details'].append({
-                        'row': index + 2,
-                        'message': error_message
-                    })
-            
-            return Response(stats, status=status.HTTP_200_OK)
+            # Если используем листы как категории - обрабатываем каждый лист отдельно
+            if use_sheet_as_category:
+                return self._process_multiple_sheets(file, auto_create_categories, stats, request.user)
+            else:
+                return self._process_single_sheet(file, auto_create_categories, stats, request.user)
             
         except Exception as e:
             logger.error(f"Ошибка при обработке Excel файла: {e}")
@@ -653,6 +659,166 @@ class BulkUploadPOIView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+    
+    def _process_multiple_sheets(self, file, auto_create_categories, stats, user):
+        """Обработать файл с несколькими листами (каждый лист = категория)"""
+        import pandas as pd
+        
+        # Получаем все листы
+        excel_file = pd.ExcelFile(file, engine='openpyxl' if file.name.endswith('.xlsx') else None)
+        sheet_names = excel_file.sheet_names
+        
+        if not sheet_names:
+            return Response(
+                {'error': 'Файл не содержит листов'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Обрабатываем каждый лист
+        for sheet_name in sheet_names:
+            try:
+                # Читаем лист
+                df = pd.read_excel(excel_file, sheet_name=sheet_name, engine='openpyxl' if file.name.endswith('.xlsx') else None)
+                
+                if df.empty:
+                    logger.warning(f"Лист '{sheet_name}' пуст, пропускаем")
+                    continue
+                
+                stats['sheets_processed'] += 1
+                sheet_total = len(df)
+                stats['total'] += sheet_total
+                
+                # Нормализуем названия колонок
+                df.columns = df.columns.str.strip().str.lower()
+                
+                # Определяем маппинг колонок
+                column_mapping = self._detect_column_mapping(df.columns.tolist())
+                
+                # Для режима с листами как категориями - колонка категории не нужна
+                required_columns = ['name', 'address', 'latitude', 'longitude']
+                missing_columns = [col for col in required_columns if col not in column_mapping]
+                
+                if missing_columns:
+                    stats['errors'] += sheet_total
+                    stats['errors_details'].append({
+                        'sheet': sheet_name,
+                        'message': f'Отсутствуют обязательные колонки: {", ".join(missing_columns)}'
+                    })
+                    continue
+                
+                # Получаем или создаем категорию по названию листа
+                category = self._get_or_create_category(
+                    sheet_name.strip(),
+                    auto_create_categories,
+                    stats
+                )
+                
+                if not category:
+                    stats['errors'] += sheet_total
+                    stats['errors_details'].append({
+                        'sheet': sheet_name,
+                        'message': f'Категория "{sheet_name}" не найдена и не может быть создана'
+                    })
+                    continue
+                
+                # Обрабатываем каждую строку листа
+                for index, row in df.iterrows():
+                    try:
+                        poi_data = self._extract_poi_data(row, column_mapping, category_name=sheet_name.strip())
+                        
+                        # Создаем POI с использованием Gigachat для описания и S_infra
+                        with transaction.atomic():
+                            poi = self._create_poi_with_gigachat(poi_data, category, user)
+                            stats['created'] += 1
+                            
+                    except Exception as e:
+                        stats['errors'] += 1
+                        error_message = str(e)
+                        logger.error(f"Ошибка при создании POI из листа '{sheet_name}', строка {index + 2}: {error_message}")
+                        stats['errors_details'].append({
+                            'sheet': sheet_name,
+                            'row': index + 2,
+                            'message': error_message
+                        })
+                        
+            except Exception as e:
+                error_message = f"Ошибка при обработке листа '{sheet_name}': {str(e)}"
+                logger.error(error_message)
+                stats['errors_details'].append({
+                    'sheet': sheet_name,
+                    'message': error_message
+                })
+        
+        return Response(stats, status=status.HTTP_200_OK)
+    
+    def _process_single_sheet(self, file, auto_create_categories, stats, user):
+        """Обработать файл с одним листом (колонка категории обязательна)"""
+        # Читаем Excel файл (первый лист по умолчанию)
+        df = pd.read_excel(file, engine='openpyxl' if file.name.endswith('.xlsx') else None)
+        
+        if df.empty:
+            return Response(
+                {'error': 'Файл пуст или не содержит данных'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        stats['total'] = len(df)
+        stats['sheets_processed'] = 1
+        
+        # Нормализуем названия колонок (приводим к нижнему регистру, убираем пробелы)
+        df.columns = df.columns.str.strip().str.lower()
+        
+        # Определяем маппинг колонок
+        column_mapping = self._detect_column_mapping(df.columns.tolist())
+        
+        # Проверяем наличие обязательных колонок
+        required_columns = ['name', 'address', 'latitude', 'longitude', 'category']
+        missing_columns = [col for col in required_columns if col not in column_mapping]
+        
+        if missing_columns:
+            return Response(
+                {
+                    'error': f'Отсутствуют обязательные колонки: {", ".join(missing_columns)}',
+                    'available_columns': list(df.columns)
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Обрабатываем каждую строку
+        for index, row in df.iterrows():
+            try:
+                poi_data = self._extract_poi_data(row, column_mapping)
+                
+                # Получаем или создаем категорию
+                category = self._get_or_create_category(
+                    poi_data['category'],
+                    auto_create_categories,
+                    stats
+                )
+                
+                if not category:
+                    stats['errors'] += 1
+                    stats['errors_details'].append({
+                        'row': index + 2,  # +2 потому что индекс с 0, и есть заголовок
+                        'message': f'Категория "{poi_data["category"]}" не найдена'
+                    })
+                    continue
+                
+                # Создаем POI с использованием Gigachat для описания и S_infra
+                with transaction.atomic():
+                    poi = self._create_poi_with_gigachat(poi_data, category, user)
+                    stats['created'] += 1
+                    
+            except Exception as e:
+                stats['errors'] += 1
+                error_message = str(e)
+                logger.error(f"Ошибка при создании POI из строки {index + 2}: {error_message}")
+                stats['errors_details'].append({
+                    'row': index + 2,
+                    'message': error_message
+                })
+        
+        return Response(stats, status=status.HTTP_200_OK)
     
     def _detect_column_mapping(self, columns: List[str]) -> Dict[str, str]:
         """
@@ -667,10 +833,10 @@ class BulkUploadPOIView(APIView):
         mapping = {}
         
         # Варианты названий для каждого поля
-        name_variants = ['название', 'name', 'имя', 'наименование']
-        address_variants = ['адрес', 'address', 'адресс']
-        lat_variants = ['широта', 'latitude', 'lat', 'координата_широта']
-        lon_variants = ['долгота', 'longitude', 'lon', 'lng', 'координата_долгота']
+        name_variants = ['название', 'name', 'имя', 'наименование', 'cfname']
+        address_variants = ['адрес', 'address', 'адресс', 'cfaddress']
+        lat_variants = ['широта', 'latitude', 'lat', 'координата_широта', 'cflatitude']
+        lon_variants = ['долгота', 'longitude', 'lon', 'lng', 'координата_долгота', 'cflongitude']
         category_variants = ['категория', 'category', 'тип', 'вид']
         description_variants = ['описание', 'description', 'desc']
         phone_variants = ['телефон', 'phone', 'tel', 'телефон_контакт']
@@ -701,13 +867,14 @@ class BulkUploadPOIView(APIView):
         
         return mapping
     
-    def _extract_poi_data(self, row: pd.Series, column_mapping: Dict[str, str]) -> Dict[str, Any]:
+    def _extract_poi_data(self, row: pd.Series, column_mapping: Dict[str, str], category_name: str = None) -> Dict[str, Any]:
         """
         Извлечь данные POI из строки Excel
         
         Args:
             row: Строка DataFrame
             column_mapping: Маппинг колонок
+            category_name: Название категории (если передано, используется вместо колонки)
             
         Returns:
             dict: Данные для создания POI
@@ -734,7 +901,13 @@ class BulkUploadPOIView(APIView):
         if not (-180 <= data['longitude'] <= 180):
             raise ValueError(f'Долгота должна быть от -180 до 180, получено: {data["longitude"]}')
         
-        data['category'] = str(row[column_mapping['category']]).strip()
+        # Категория - либо из параметра, либо из колонки
+        if category_name:
+            data['category'] = category_name
+        elif 'category' in column_mapping:
+            data['category'] = str(row[column_mapping['category']]).strip()
+        else:
+            raise ValueError('Категория не указана')
         
         # Опциональные поля
         if 'description' in column_mapping:
@@ -792,22 +965,12 @@ class BulkUploadPOIView(APIView):
         except POICategory.DoesNotExist:
             pass
         
-        # Пытаемся найти по slug
-        category_slug = slugify(category_name)
-        try:
-            return POICategory.objects.get(slug=category_slug, is_active=True)
-        except POICategory.DoesNotExist:
-            pass
-        
         # Если не найдено и разрешено создание
         if auto_create:
             category = POICategory.objects.create(
                 name=category_name,
-                slug=category_slug,
                 is_active=True,
                 marker_color='#FF0000',  # Дефолтный цвет
-                health_weight=1.0,
-                health_importance=5,
                 display_order=0
             )
             stats['categories_created'].append(category_name)
@@ -815,4 +978,87 @@ class BulkUploadPOIView(APIView):
             return category
         
         return None
+    
+    def _create_poi_with_gigachat(self, poi_data: Dict[str, Any], category: POICategory, user: User) -> POI:
+        """
+        Создать POI с генерацией описания и расчетом S_infra через Gigachat
+        
+        Args:
+            poi_data: Данные для создания POI
+            category: Категория объекта
+            user: Пользователь, создающий объект
+            
+        Returns:
+            POI: Созданный объект
+        """
+        from maps.services.llm_service import LLMService
+        from maps.services.infrastructure_score_calculator import InfrastructureScoreCalculator
+        
+        llm_service = LLMService()
+        infra_calculator = InfrastructureScoreCalculator()
+        
+        # Формируем полные данные для Gigachat
+        full_data = {
+            'название': poi_data.get('name', ''),
+            'адрес': poi_data.get('address', ''),
+            **{k: v for k, v in poi_data.items() if k not in ['name', 'address', 'latitude', 'longitude', 'category'] and v}
+        }
+        
+        # Генерируем описание через Gigachat
+        description = poi_data.get('description', '')
+        if not description or len(description.strip()) < 10:
+            # Если описания нет или оно слишком короткое - генерируем через Gigachat
+            try:
+                description = llm_service.generate_description_from_data(full_data, category.name)
+            except Exception as e:
+                logger.warning(f'Ошибка генерации описания через Gigachat: {e}')
+                # Fallback на базовое описание
+                description = f"{poi_data.get('name', 'Объект')}. {poi_data.get('address', '')}"
+        
+        # Рассчитываем S_infra через Gigachat
+        s_infra_result = infra_calculator.calculate_from_description(
+            description=description,
+            category_name=category.name,
+            additional_data={
+                'адрес': poi_data.get('address', ''),
+                'название': poi_data.get('name', ''),
+            }
+        )
+        
+        # Создаем POI
+        poi = POI.objects.create(
+            name=poi_data['name'],
+            address=poi_data['address'],
+            latitude=Decimal(str(poi_data['latitude'])),
+            longitude=Decimal(str(poi_data['longitude'])),
+            category=category,
+            description=description,
+            phone=poi_data.get('phone', ''),
+            website=poi_data.get('website', ''),
+            email=poi_data.get('email', ''),
+            working_hours=poi_data.get('working_hours', ''),
+            moderation_status='approved',
+            is_active=True,
+            submitted_by=user,
+            verified=True,
+            verified_by=user,
+            verified_at=timezone.now(),
+            metadata={
+                's_infra_calculation': {
+                    's_infra': s_infra_result.get('s_infra', 50.0),
+                    'confidence': s_infra_result.get('confidence', 0.0),
+                    'reasoning': s_infra_result.get('reasoning', ''),
+                    'red_flags': s_infra_result.get('red_flags', []),
+                    'calculated_by': 'gigachat'
+                },
+                'description_generated': not poi_data.get('description') or len(poi_data.get('description', '').strip()) < 10
+            }
+        )
+        
+        # Создаем POIRating с рассчитанным S_infra
+        from maps.services.health_impact_score_calculator import HealthImpactScoreCalculator
+        rating_calculator = HealthImpactScoreCalculator()
+        rating_calculator.calculate_full_rating(poi, save=True)
+        
+        return poi
 

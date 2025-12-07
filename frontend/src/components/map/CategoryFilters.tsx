@@ -180,18 +180,18 @@ export const CategoryFilters: React.FC<CategoryFiltersProps> = ({
   // Автоматически выбираем все категории при первой загрузке
   useEffect(() => {
     if (categories.length > 0 && !isInitialized && !userHasInteracted) {
-      const allSlugs = categories.map(cat => cat.slug);
-      onCategoriesChange(allSlugs);
+      const allUuids = categories.map(cat => cat.uuid);
+      onCategoriesChange(allUuids);
       setIsInitialized(true);
     }
   }, [categories, isInitialized, userHasInteracted, onCategoriesChange]);
 
-  const handleToggleCategory = (slug: string) => {
+  const handleToggleCategory = (uuid: string) => {
     setUserHasInteracted(true);
-    if (selectedCategories.includes(slug)) {
-      onCategoriesChange(selectedCategories.filter((s) => s !== slug));
+    if (selectedCategories.includes(uuid)) {
+      onCategoriesChange(selectedCategories.filter((s) => s !== uuid));
     } else {
-      onCategoriesChange([...selectedCategories, slug]);
+      onCategoriesChange([...selectedCategories, uuid]);
     }
   };
 
@@ -200,7 +200,7 @@ export const CategoryFilters: React.FC<CategoryFiltersProps> = ({
     if (selectedCategories.length === categories.length) {
       onCategoriesChange([]);
     } else {
-      onCategoriesChange(categories.map((c) => c.slug));
+      onCategoriesChange(categories.map((c) => c.uuid));
     }
   };
 
@@ -271,14 +271,14 @@ export const CategoryFilters: React.FC<CategoryFiltersProps> = ({
               {Array.isArray(categories) && categories.map((category) => (
                 <FilterItem
                   key={category.uuid}
-                  checked={selectedCategories.includes(category.slug)}
+                  checked={selectedCategories.includes(category.uuid)}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.2 }}
                 >
                   <Checkbox
-                    checked={selectedCategories.includes(category.slug)}
-                    onChange={() => handleToggleCategory(category.slug)}
+                    checked={selectedCategories.includes(category.uuid)}
+                    onChange={() => handleToggleCategory(category.uuid)}
                   />
                   <FilterLabel>
                     <ColorIndicator color={category.marker_color} />

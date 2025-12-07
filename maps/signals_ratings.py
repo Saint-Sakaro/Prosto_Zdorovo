@@ -19,15 +19,17 @@ from maps.services.health_impact_score_calculator import HealthImpactScoreCalcul
 @receiver(post_save, sender=POI)
 def recalculate_rating_on_poi_change(sender, instance, **kwargs):
     """
-    Пересчитывает рейтинг при изменении данных анкеты объекта
+    Пересчитывает рейтинг при изменении описания объекта или при одобрении
     
     Args:
         sender: Модель POI
         instance: Экземпляр POI
         **kwargs: Дополнительные аргументы
     """
-    # Проверяем, что есть данные анкеты
-    if instance.form_data or instance.form_schema:
+    # Пересчитываем рейтинг если:
+    # 1. Объект одобрен и активен (для создания POIRating)
+    # 2. Изменилось описание (для пересчета S_infra)
+    if instance.is_active and instance.moderation_status == 'approved':
         calculator = HealthImpactScoreCalculator()
         calculator.calculate_full_rating(instance, save=True)
 

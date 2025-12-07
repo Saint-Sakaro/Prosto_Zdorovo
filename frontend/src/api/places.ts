@@ -26,7 +26,7 @@ export interface PlaceSubmissionData {
   address: string;
   latitude: number;
   longitude: number;
-  category_slug: string;
+  category_uuid: string;
   form_data: Record<string, any>;
   description?: string;
 }
@@ -38,7 +38,7 @@ export interface PlaceSubmission {
   latitude: number;
   longitude: number;
   category: POICategory;
-  category_slug: string;
+  category_uuid: string;
   form_data: Record<string, any>;
   description?: string;
   moderation_status: 'pending' | 'approved' | 'rejected' | 'changes_requested';
@@ -70,8 +70,8 @@ export const getCategories = async (): Promise<POICategory[]> => {
 };
 
 // Получить схему формы для категории
-export const getCategorySchema = async (categorySlug: string): Promise<FormSchema> => {
-  const response = await apiClient.get(`/maps/categories/${categorySlug}/schema/`);
+export const getCategorySchema = async (categoryUuid: string): Promise<FormSchema> => {
+  const response = await apiClient.get(`/maps/categories/${categoryUuid}/schema/`);
   return response.data;
 };
 
@@ -169,16 +169,16 @@ export const createCategory = async (data: Partial<POICategory>): Promise<POICat
   return response.data;
 };
 
-export const updateCategory = async (slug: string, data: Partial<POICategory>): Promise<POICategory> => {
-  const response = await apiClient.put(`/maps/categories/${slug}/`, data);
+export const updateCategory = async (uuid: string, data: Partial<POICategory>): Promise<POICategory> => {
+  const response = await apiClient.put(`/maps/categories/${uuid}/`, data);
   return response.data;
 };
 
 export const updateCategorySchema = async (
-  categorySlug: string, 
+  categoryUuid: string, 
   schema: Partial<FormSchema>
 ): Promise<FormSchema> => {
-  const response = await apiClient.put(`/maps/categories/${categorySlug}/schema/`, schema);
+  const response = await apiClient.put(`/maps/categories/${categoryUuid}/schema/`, schema);
   return response.data;
 };
 

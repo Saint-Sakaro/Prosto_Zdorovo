@@ -18,12 +18,12 @@ class POIFilterService:
     - validate_filters(): Валидация фильтров
     """
     
-    def get_filtered_pois(self, category_slugs=None, bbox=None):
+    def get_filtered_pois(self, category_uuids=None, bbox=None):
         """
         Получить POI с применением фильтров
         
         Args:
-            category_slugs: Список slug категорий для фильтрации (None = все)
+            category_uuids: Список UUID категорий для фильтрации (None = все)
             bbox: Bounding box для ограничения области (опционально)
                 Формат: {'sw_lat': float, 'sw_lon': float, 'ne_lat': float, 'ne_lon': float}
         
@@ -33,8 +33,8 @@ class POIFilterService:
         pois = POI.objects.filter(is_active=True)
         
         # Фильтр по категориям
-        if category_slugs:
-            pois = pois.filter(category__slug__in=category_slugs)
+        if category_uuids:
+            pois = pois.filter(category__uuid__in=category_uuids)
         
         # Фильтр по bounding box
         if bbox:
@@ -63,27 +63,27 @@ class POIFilterService:
         
         return categories.order_by('display_order', 'name')
     
-    def validate_filters(self, category_slugs):
+    def validate_filters(self, category_uuids):
         """
         Валидировать список фильтров категорий
         
         Args:
-            category_slugs: Список slug категорий
+            category_uuids: Список UUID категорий
         
         Returns:
-            tuple: (is_valid: bool, valid_slugs: list, invalid_slugs: list)
+            tuple: (is_valid: bool, valid_uuids: list, invalid_uuids: list)
         """
-        if not category_slugs:
+        if not category_uuids:
             return True, [], []
         
-        existing_slugs = set(
-            POICategory.objects.filter(is_active=True).values_list('slug', flat=True)
+        existing_uuids = set(
+            str(uuid) for uuid in POICategory.objects.filter(is_active=True).values_list('uuid', flat=True)
         )
         
-        valid_slugs = [slug for slug in category_slugs if slug in existing_slugs]
-        invalid_slugs = [slug for slug in category_slugs if slug not in existing_slugs]
+        valid_uuids = [uuid for uuid in category_uuids if str(uuid) in existing_uuids]
+        invalid_uuids = [uuid for uuid in category_uuids if str(uuid) not in existing_uuids]
         
-        is_valid = len(invalid_slugs) == 0
+        is_valid = len(invalid_uuids) == 0
         
-        return is_valid, valid_slugs, invalid_slugs
+        return is_valid, valid_uuids, invalid_uuids
 

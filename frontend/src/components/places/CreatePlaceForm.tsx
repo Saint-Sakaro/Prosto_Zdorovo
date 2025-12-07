@@ -506,7 +506,7 @@ export const CreatePlaceForm: React.FC<CreatePlaceFormProps> = ({
         address: address.trim(),
         latitude,
         longitude,
-        category_slug: selectedCategory,
+        category_uuid: selectedCategory,
         form_data: formData,
         description: description.trim() || undefined,
       });
@@ -622,7 +622,7 @@ export const CreatePlaceForm: React.FC<CreatePlaceFormProps> = ({
             options={[
               { value: '', label: 'Выберите категорию' },
               ...categories.map((cat) => ({
-                value: cat.slug,
+                value: cat.uuid,
                 label: cat.name,
               })),
             ]}

@@ -14,14 +14,11 @@ import { CategoryEditor } from '../components/places/CategoryEditor';
 import { 
   getCategories, 
   createCategory, 
-  updateCategory, 
-  getCategorySchema,
-  updateCategorySchema 
+  updateCategory
 } from '../api/places';
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api/auth';
 import { POICategory } from '../api/maps';
-import { FormSchema } from '../api/maps';
 import { theme } from '../theme';
 
 const PageWrapper = styled(motion.div)`
@@ -118,11 +115,6 @@ const CategoryName = styled.div`
   gap: ${({ theme }) => theme.spacing.sm};
 `;
 
-const CategorySlug = styled.div`
-  font-size: ${({ theme }) => theme.typography.fontSize.xs};
-  color: ${({ theme }) => theme.colors.text.muted};
-`;
-
 const ColorBadge = styled.div<{ $color: string }>`
   width: 20px;
   height: 20px;
@@ -183,7 +175,6 @@ export const CategoriesManagementPage: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
   const [categories, setCategories] = useState<POICategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<POICategory | null>(null);
-  const [selectedSchema, setSelectedSchema] = useState<FormSchema | null>(null);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -244,30 +235,9 @@ export const CategoriesManagementPage: React.FC = () => {
     loadCategories();
   }, [isAdmin]);
 
-  // Загрузка схемы при выборе категории
-  useEffect(() => {
-    const loadSchema = async () => {
-      if (!selectedCategory || !editing) {
-        setSelectedSchema(null);
-        return;
-      }
-
-      try {
-        const schema = await getCategorySchema(selectedCategory.slug);
-        setSelectedSchema(schema);
-      } catch (err: any) {
-        console.error('Ошибка загрузки схемы:', err);
-        // Если схемы нет, создаем пустую
-        setSelectedSchema(null);
-      }
-    };
-
-    loadSchema();
-  }, [selectedCategory, editing]);
 
   const handleCreateNew = () => {
     setSelectedCategory(null);
-    setSelectedSchema(null);
     setEditing(true);
   };
 
@@ -277,47 +247,31 @@ export const CategoriesManagementPage: React.FC = () => {
   };
 
   const handleSave = async (
-    categoryData: Partial<POICategory>,
-    schemaData?: Partial<FormSchema>
+    categoryData: Partial<POICategory>
   ) => {
     try {
       if (selectedCategory) {
         // Обновление существующей категории
-        await updateCategory(selectedCategory.slug, categoryData);
-        
-        // Обновление схемы, если она есть
-        if (schemaData && selectedCategory.slug) {
-          try {
-            await updateCategorySchema(selectedCategory.slug, schemaData as FormSchema);
-          } catch (err) {
-            console.error('Ошибка обновления схемы:', err);
-            // Схема может не существовать, это нормально
-          }
-        }
+        await updateCategory(selectedCategory.uuid, categoryData);
       } else {
         // Создание новой категории
         const newCategory = await createCategory(categoryData);
         
-        // Создание схемы для новой категории
-        if (schemaData && newCategory.slug) {
-          try {
-            await updateCategorySchema(newCategory.slug, schemaData as FormSchema);
-          } catch (err) {
-            console.error('Ошибка создания схемы:', err);
-          }
+        // Обновляем список категорий
+        const updatedCategories = await getCategories();
+        setCategories(updatedCategories);
+        
+        // Если создавали новую, выбираем её из обновленного списка
+        const createdCategory = updatedCategories.find((c) => c.uuid === newCategory.uuid);
+        if (createdCategory) {
+          setSelectedCategory(createdCategory);
         }
       }
 
-      // Обновляем список категорий
-      const updatedCategories = await getCategories();
-      setCategories(updatedCategories);
-      
-      // Если создавали новую, выбираем её
-      if (!selectedCategory) {
-        const newCat = updatedCategories.find((c) => c.slug === categoryData.slug);
-        if (newCat) {
-          setSelectedCategory(newCat);
-        }
+      // Если обновляли существующую, обновляем список категорий
+      if (selectedCategory) {
+        const updatedCategories = await getCategories();
+        setCategories(updatedCategories);
       }
       
       setEditing(false);
@@ -428,7 +382,6 @@ export const CategoriesManagementPage: React.FC = () => {
                           <ColorBadge $color={cat.marker_color} />
                           {cat.name}
                         </CategoryName>
-                        <CategorySlug>{cat.slug}</CategorySlug>
                       </CategoryItem>
                     </motion.div>
                   ))}
@@ -449,12 +402,10 @@ export const CategoriesManagementPage: React.FC = () => {
                   >
                     <CategoryEditor
                       category={selectedCategory}
-                      formSchema={selectedSchema}
                       onSave={handleSave}
                       onCancel={() => {
                         setEditing(false);
                         setSelectedCategory(null);
-                        setSelectedSchema(null);
                       }}
                     />
                   </motion.div>

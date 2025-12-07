@@ -268,7 +268,7 @@ export const ModerationPanel: React.FC<ModerationPanelProps> = ({
           <span>🏷️</span>
           <span>
             <strong>Категория:</strong>{' '}
-            {submission.category?.name || submission.category_slug}
+            {submission.category?.name || 'Без категории'}
           </span>
         </InfoRow>
         <InfoRow>

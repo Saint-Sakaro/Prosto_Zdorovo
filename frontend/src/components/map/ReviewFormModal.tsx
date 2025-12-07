@@ -79,21 +79,6 @@ export const ReviewFormModal: React.FC<ReviewFormModalProps> = ({
 }) => {
   if (!poi) return null;
 
-  // Маппинг категории POI на категорию отзыва
-  const getReviewCategory = (poiCategory: string): string => {
-    const categoryMap: { [key: string]: string } = {
-      'pharmacy': 'Аптека',
-      'hospital': 'Поликлиника',
-      'clinic': 'Клиника',
-      'sport': 'Спортзал',
-      'pool': 'Бассейн',
-      'park': 'Парк',
-      'sports-ground': 'Спортивная площадка',
-      'healthy-food-store': 'Магазин здорового питания',
-      'healthy-restaurant': 'Ресторан здорового питания',
-    };
-    return categoryMap[poiCategory] || 'Другое';
-  };
 
   return (
     <AnimatePresence>
@@ -122,7 +107,7 @@ export const ReviewFormModal: React.FC<ReviewFormModalProps> = ({
                 longitude: poi.longitude,
                 poi: poi.uuid, // ⬅️ Передаем UUID POI
               }}
-              initialCategory={getReviewCategory(poi.category.slug)}
+              initialCategory={poi.category?.name || 'Другое'}
               initialReviewType="poi_review"
             />
           </ModalContent>

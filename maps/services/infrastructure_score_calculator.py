@@ -1,153 +1,118 @@
 """
 Сервис расчета статического инфраструктурного рейтинга (S_infra)
 
-Реализует расчет рейтинга на основе заполненной анкеты объекта
-с учетом весов полей и нормализации значений.
+Реализует расчет рейтинга через Gigachat на основе описания места.
 """
 
-from django.db.models import Q
-from maps.models import POI, FormSchema
-from decimal import Decimal
+from maps.models import POI
+from maps.services.llm_service import LLMService
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class InfrastructureScoreCalculator:
     """
-    Класс для расчета инфраструктурного рейтинга
+    Класс для расчета инфраструктурного рейтинга через Gigachat
     
     Методы:
-    - calculate_infra_score(): Расчет S_infra для объекта
-    - normalize_field_value(): Нормализация значения поля в [0;1]
-    - calculate_weighted_sum(): Расчет взвешенной суммы
+    - calculate_infra_score(): Расчет S_infra для объекта через Gigachat
+    - calculate_from_description(): Расчет S_infra напрямую из описания
     """
+    
+    def __init__(self):
+        """Инициализация с LLM сервисом"""
+        self.llm_service = LLMService()
     
     def calculate_infra_score(self, poi):
         """
-        Рассчитывает инфраструктурный рейтинг для объекта
+        Рассчитывает инфраструктурный рейтинг для объекта через Gigachat
         
         Args:
-            poi: Объект POI с заполненной анкетой
+            poi: Объект POI с описанием
         
         Returns:
             float: S_infra в диапазоне 0-100
         """
-        if not poi.form_schema or not poi.form_data:
-            return 50.0  # Нейтральное значение при отсутствии данных
+        # Используем описание места
+        description = poi.description or ''
         
-        schema = poi.form_schema
-        form_data = poi.form_data
-        fields = schema.get_fields()
+        # Если описания нет, пытаемся сформировать из form_data (для обратной совместимости)
+        if not description and poi.form_data:
+            description = self._format_description_from_form_data(poi.form_data)
         
-        if not fields:
+        # Если всё ещё нет описания, возвращаем нейтральное значение
+        if not description or not description.strip():
+            logger.warning(f'No description for POI {poi.uuid}, returning neutral score')
             return 50.0
         
-        total_weighted_score = 0.0
-        total_weight = 0.0
+        # Получаем название категории
+        category_name = poi.category.name if poi.category else 'Неизвестная категория'
         
-        for field in fields:
-            field_id = field.get('id')
-            if not field_id or field_id not in form_data:
-                continue  # Пропускаем незаполненные поля
-            
-            # Нормализуем значение поля (direction уже учтен в normalize_field_value)
-            normalized_value = self.normalize_field_value(
-                field,
-                form_data[field_id]
-            )
-            
-            # Получаем вес
-            weight = field.get('weight', 1.0)
-            
-            # Взвешенный вклад поля
-            total_weighted_score += normalized_value * weight
-            total_weight += abs(weight)
+        # Формируем дополнительные данные
+        additional_data = {
+            'адрес': poi.address,
+            'название': poi.name,
+        }
         
-        # Рассчитываем средневзвешенное значение
-        if total_weight > 0:
-            raw_score = total_weighted_score / total_weight
-        else:
-            raw_score = 0.5  # Нейтральное значение
+        # Вызываем Gigachat для расчета
+        result = self.llm_service.calculate_infra_score(
+            description=description,
+            category_name=category_name,
+            additional_data=additional_data
+        )
         
-        # Нормализуем в диапазон 0-100
-        S_infra = max(0.0, min(100.0, raw_score * 100.0))
+        s_infra = result.get('s_infra', 50.0)
         
-        return round(S_infra, 2)
+        # Сохраняем метаданные расчета в POI (если есть)
+        if hasattr(poi, 'metadata'):
+            poi.metadata = poi.metadata or {}
+            poi.metadata['s_infra_calculation'] = {
+                'confidence': result.get('confidence', 0.0),
+                'reasoning': result.get('reasoning', ''),
+                'red_flags': result.get('red_flags', []),
+                'calculated_by': 'gigachat'
+            }
+        
+        return s_infra
     
-    def normalize_field_value(self, field, value):
+    def calculate_from_description(self, description: str, category_name: str, additional_data: dict = None) -> dict:
         """
-        Нормализует значение поля в диапазон [0;1]
+        Рассчитывает S_infra напрямую из описания
         
         Args:
-            field: Словарь с описанием поля из схемы
-            value: Фактическое значение поля
+            description: Описание места
+            category_name: Название категории
+            additional_data: Дополнительные данные (опционально)
         
         Returns:
-            float: Нормализованное значение в [0;1]
+            dict: {
+                's_infra': float,
+                'confidence': float,
+                'reasoning': str,
+                'red_flags': list
+            }
         """
-        field_type = field.get('type')
-        direction = field.get('direction', 1)
-        
-        if field_type == 'boolean':
-            # Boolean поле
-            bool_value = bool(value)
-            if direction == 1:
-                return 1.0 if bool_value else 0.0
-            else:
-                return 0.0 if bool_value else 1.0
-        
-        elif field_type == 'range':
-            # Числовой диапазон
-            try:
-                num_value = float(value)
-                scale_min = field.get('scale_min', 0.0)
-                scale_max = field.get('scale_max', 1.0)
-                
-                if scale_max == scale_min:
-                    normalized = 0.5  # Избегаем деления на ноль
-                else:
-                    normalized = (num_value - scale_min) / (scale_max - scale_min)
-                    normalized = max(0.0, min(1.0, normalized))  # Ограничиваем [0;1]
-                
-                if direction == -1:
-                    normalized = 1.0 - normalized
-                
-                return normalized
-            except (ValueError, TypeError):
-                return 0.0
-        
-        elif field_type == 'select':
-            # Выбор из списка
-            mapping = field.get('mapping', {})
-            return mapping.get(str(value), mapping.get(value, 0.0))
-        
-        elif field_type == 'photo':
-            # Наличие фото
-            return 1.0 if value else 0.0
-        
-        # Неизвестный тип - возвращаем 0
-        return 0.0
+        return self.llm_service.calculate_infra_score(
+            description=description,
+            category_name=category_name,
+            additional_data=additional_data or {}
+        )
     
-    def calculate_weighted_sum(self, normalized_values, weights):
+    def _format_description_from_form_data(self, form_data: dict) -> str:
         """
-        Рассчитывает взвешенную сумму нормализованных значений
+        Форматирует описание из form_data для обратной совместимости
         
         Args:
-            normalized_values: Список нормализованных значений [0;1]
-            weights: Список весов
+            form_data: Данные формы
         
         Returns:
-            float: Взвешенная сумма
+            str: Форматированное описание
         """
-        if not normalized_values or not weights:
-            return 0.5
+        parts = []
+        for key, value in form_data.items():
+            if value:
+                parts.append(f"{key}: {value}")
         
-        if len(normalized_values) != len(weights):
-            return 0.5
-        
-        weighted_sum = sum(v * w for v, w in zip(normalized_values, weights))
-        total_weight = sum(abs(w) for w in weights)
-        
-        if total_weight > 0:
-            return weighted_sum / total_weight
-        
-        return 0.5
+        return ". ".join(parts) if parts else ""
 

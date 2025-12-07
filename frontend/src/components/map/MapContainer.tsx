@@ -973,7 +973,7 @@ export const MapContainer: React.FC = () => {
     if (selectedCategories.length === 0) {
       return false; // Не показываем метки, если ничего не выбрано
     }
-    return selectedCategories.includes(poi.category_slug);
+    return selectedCategories.includes(poi.category_uuid);
   });
 
   return (

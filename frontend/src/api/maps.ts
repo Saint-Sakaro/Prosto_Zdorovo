@@ -7,10 +7,7 @@ import apiClient from './client';
 export interface POICategory {
   uuid: string;
   name: string;
-  slug: string;
   marker_color: string;
-  health_weight: number;
-  health_importance: number;
   display_order: number;
   is_active: boolean;
 }
@@ -19,7 +16,7 @@ export interface POI {
   uuid: string;
   name: string;
   category_name: string;
-  category_slug: string;
+  category_uuid: string;
   address: string;
   latitude: number;
   longitude: number;
@@ -35,8 +32,8 @@ export interface POIDetails {
   uuid: string;
   name: string;
   category: {
+    uuid: string;
     name: string;
-    slug: string;
     marker_color: string;
   };
   address: string;
@@ -226,7 +223,7 @@ export const mapsApi = {
   }): Promise<POIDetails> => {
     const response = await apiClient.post('/maps/pois/', {
       name: data.name,
-      category_slug: data.category, // Используем category_slug для создания
+      category_uuid: data.category, // Используем category_uuid для создания
       address: data.address,
       latitude: data.latitude,
       longitude: data.longitude,

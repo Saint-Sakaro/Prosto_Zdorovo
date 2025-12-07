@@ -18,23 +18,18 @@ class POICategoryAdmin(admin.ModelAdmin):
     Админ-панель для категорий POI
     """
     list_display = [
-        'name', 'slug', 'health_weight', 'health_importance',
-        'display_order', 'is_active', 'created_at'
+        'name', 'display_order', 'is_active', 'created_at'
     ]
     list_filter = ['is_active', 'created_at']
-    search_fields = ['name', 'slug', 'description']
+    search_fields = ['name', 'description']
     readonly_fields = ['uuid', 'created_at', 'updated_at']
-    prepopulated_fields = {'slug': ('name',)}
     
     fieldsets = (
         ('Основная информация', {
-            'fields': ('uuid', 'name', 'slug', 'description', 'icon')
+            'fields': ('uuid', 'name', 'description', 'icon')
         }),
         ('Визуализация', {
             'fields': ('marker_color', 'display_order')
-        }),
-        ('Расчет индекса здоровья', {
-            'fields': ('health_weight', 'health_importance')
         }),
         ('Статус', {
             'fields': ('is_active',)

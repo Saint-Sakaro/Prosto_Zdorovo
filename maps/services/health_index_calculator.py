@@ -23,6 +23,10 @@ class HealthIndexCalculator:
         """
         Рассчитывает интегральный индекс "здоровости" для области
         
+        Теперь использует только S_HIS объектов и фактор надежности (количество отзывов).
+        S_infra уже объективно оценивает влияние через Gigachat, поэтому дополнительное
+        взвешивание по категориям не требуется.
+        
         Args:
             pois: QuerySet POI в области
         
@@ -39,22 +43,17 @@ class HealthIndexCalculator:
             if not poi.rating:
                 continue
             
-            # Базовый рейтинг объекта
+            # Базовый рейтинг объекта (S_HIS уже учитывает влияние)
             health_score = poi.rating.health_score
             
-            # Вес категории
-            category_weight = poi.category.health_weight
-            
-            # Важность категории (нормализованная 0-1)
-            importance_factor = poi.category.health_importance / 10.0
-            
             # Фактор надежности (больше отзывов = более надежная оценка)
+            # Используем количество отзывов как вес уверенности в оценке
             reliability_factor = min(1.0, poi.rating.approved_reviews_count / 10.0)
             if reliability_factor < 0.1:
-                reliability_factor = 0.1  # Минимальная надежность
+                reliability_factor = 0.1  # Минимальная надежность (для объектов без отзывов)
             
-            # Итоговый вес объекта
-            object_weight = category_weight * importance_factor * reliability_factor
+            # Итоговый вес объекта (только надежность)
+            object_weight = reliability_factor
             
             # Взвешенный вклад объекта
             total_weighted_score += health_score * object_weight
@@ -71,16 +70,15 @@ class HealthIndexCalculator:
         
         return round(index, 2)
     
-    def calculate_weighted_average(self, pois, weight_field='health_weight'):
+    def calculate_weighted_average(self, pois):
         """
-        Рассчитывает средневзвешенное значение рейтингов
+        Рассчитывает средневзвешенное значение рейтингов по надежности
         
         Args:
             pois: QuerySet POI
-            weight_field: Поле для веса (по умолчанию health_weight категории)
         
         Returns:
-            float: Средневзвешенное значение
+            float: Средневзвешенное значение (взвешенное по количеству отзывов)
         """
         if not pois.exists():
             return 50.0
@@ -93,7 +91,12 @@ class HealthIndexCalculator:
                 continue
             
             health_score = poi.rating.health_score
-            weight = getattr(poi.category, weight_field, 1.0)
+            # Используем надежность как вес
+            reliability_factor = min(1.0, poi.rating.approved_reviews_count / 10.0)
+            if reliability_factor < 0.1:
+                reliability_factor = 0.1
+            
+            weight = reliability_factor
             
             total_weighted_score += health_score * weight
             total_weight += weight
@@ -106,6 +109,8 @@ class HealthIndexCalculator:
         """
         Получить вес объекта при расчете индекса
         
+        Теперь использует только фактор надежности (количество отзывов) и расстояние.
+        
         Args:
             poi: Объект POI
             distance_to_center: Расстояние до центра области (опционально)
@@ -116,26 +121,19 @@ class HealthIndexCalculator:
         if not poi.rating:
             return 0.0
         
-        # Базовый вес категории
-        base_weight = poi.category.health_weight
-        
-        # Фактор важности
-        importance_factor = poi.category.health_importance / 10.0
-        
         # Фактор надежности (количество отзывов)
         reliability_factor = min(1.0, poi.rating.approved_reviews_count / 10.0)
         if reliability_factor < 0.1:
-            reliability_factor = 0.1
+            reliability_factor = 0.1  # Минимальная надежность
         
         # Фактор расстояния (если указано)
         distance_factor = 1.0
         if distance_to_center is not None:
-            # Ближе к центру = больше вес (можно использовать обратную пропорцию)
-            # Например: weight = 1 / (1 + distance / 1000)
+            # Ближе к центру = больше вес
             distance_factor = 1.0 / (1.0 + distance_to_center / 1000.0)
         
-        # Итоговый вес
-        weight = base_weight * importance_factor * reliability_factor * distance_factor
+        # Итоговый вес (только надежность и расстояние)
+        weight = reliability_factor * distance_factor
         
         return weight
     
